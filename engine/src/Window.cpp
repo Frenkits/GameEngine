@@ -6,6 +6,10 @@
 #include <stdexcept>
 #include <iostream>
 
+#ifdef _WIN32
+#include <windows.h>
+#endif
+
 namespace engine {
 
 namespace {
@@ -14,6 +18,21 @@ namespace {
 
 Window::Window(int width, int height, const std::string& title)
     : m_width(width), m_height(height) {
+
+#ifdef _WIN32
+    // Senza questo, su schermi con ridimensionamento Windows >100% (molto
+    // comune su laptop, es. 125%/150%), Windows applica uno scaling automatico
+    // alla finestra che disallinea le coordinate del mouse riportate da GLFW
+    // rispetto ai pixel reali renderizzati: causa esattamente un offset di
+    // click sistematico nel color-picking (e in generale in qualsiasi
+    // interazione mouse-su-contenuto-renderizzato). Va chiamato una sola
+    // volta, prima di creare qualsiasi finestra.
+    static bool dpiAwarenessSet = false;
+    if (!dpiAwarenessSet) {
+        SetProcessDPIAware();
+        dpiAwarenessSet = true;
+    }
+#endif
 
     if (!g_glfwInitialized) {
         if (!glfwInit()) {

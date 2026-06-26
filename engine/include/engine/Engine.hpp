@@ -88,7 +88,7 @@ private:
     // Color picking: disegna ogni oggetto con un colore che codifica il suo
     // id, legge il pixel sotto il cursore, decodifica l'id. Ritorna kInvalidId
     // se il click è su uno sfondo vuoto.
-    ObjectId pickObjectAt(float pixelX, float pixelY);
+    ObjectId pickObjectAt(float fractionX, float fractionY, int viewportWidth, int viewportHeight);
 };
 
 } // namespace engine

@@ -28,11 +28,11 @@ public:
 
         // Click sinistro dentro il pannello Scena in questo frame: usato per
         // la selezione "alla Unreal" cliccando direttamente sull'oggetto 3D.
-        // Coordinate in pixel del framebuffer della scena, origine in basso
-        // a sinistra (convenzione OpenGL).
+        // Espresso come FRAZIONE (0..1) della dimensione del pannello, non
+        // pixel assoluti: vedi commento in drawSceneWindow per il perché.
         bool clickedInViewport = false;
-        float clickPixelX = 0.0f;
-        float clickPixelY = 0.0f;
+        float clickFractionX = 0.0f; // 0 = sinistra, 1 = destra
+        float clickFractionY = 0.0f; // 0 = in alto, 1 = in basso
     };
 
     explicit EditorUI(GLFWwindow* windowHandle);

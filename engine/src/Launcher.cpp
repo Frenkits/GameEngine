@@ -10,6 +10,10 @@
 #include <vector>
 #include <stdexcept>
 
+#ifdef _WIN32
+#include <windows.h>
+#endif
+
 namespace fs = std::filesystem;
 
 namespace engine {
@@ -22,6 +26,17 @@ Launcher::Launcher() {
 Launcher::~Launcher() = default;
 
 std::string Launcher::run() {
+#ifdef _WIN32
+    // Va chiamato il più presto possibile nel processo, prima di QUALSIASI
+    // finestra: il Launcher si apre prima dell'editor, quindi deve farlo lui
+    // per primo (stesso fix applicato anche in Window.cpp per l'editor).
+    static bool dpiAwarenessSet = false;
+    if (!dpiAwarenessSet) {
+        SetProcessDPIAware();
+        dpiAwarenessSet = true;
+    }
+#endif
+
     // Il launcher gestisce GLFW/GLAD/ImGui "a mano" (senza la classe Window
     // o EditorUI) perché è una finestra a parte, più semplice, mostrata e
     // distrutta completamente prima che l'editor apra la sua.

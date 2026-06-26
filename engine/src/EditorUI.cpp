@@ -7,6 +7,7 @@
 
 #include <filesystem>
 #include <fstream>
+#include <cstdio>
 
 namespace fs = std::filesystem;
 
@@ -297,9 +298,20 @@ void EditorUI::drawSceneWindow(FrameResult& result, unsigned int sceneTextureId)
         float localX = mouse.x - imageScreenPos.x;
         float localY = mouse.y - imageScreenPos.y; // origine in alto, Y verso il basso
 
+        // IMPORTANTE: salviamo la posizione del click come FRAZIONE (0..1)
+        // della dimensione del pannello, non come pixel assoluti. Il
+        // framebuffer della scena potrebbe avere dimensioni leggermente
+        // diverse da "avail" (viene ridimensionato con un frame di ritardo),
+        // quindi una coordinata proporzionale resta corretta in entrambi i
+        // casi, mentre un pixel assoluto si "scollega" se le dimensioni non
+        // coincidono esattamente tra il frame visualizzato e quello del click.
         result.clickedInViewport = true;
-        result.clickPixelX = localX;
-        result.clickPixelY = avail.y - localY; // flip: l'OpenGL framebuffer ha origine in basso
+        result.clickFractionX = localX / avail.x;
+        result.clickFractionY = localY / avail.y; // 0 = in alto, 1 = in basso
+
+        printf("[ClickDebug] imageScreenPos=(%.1f,%.1f) mouseAbs=(%.1f,%.1f) avail=(%.1f,%.1f) local=(%.1f,%.1f) frazione=(%.3f,%.3f)\n",
+               imageScreenPos.x, imageScreenPos.y, mouse.x, mouse.y, avail.x, avail.y,
+               localX, localY, result.clickFractionX, result.clickFractionY);
     }
 
     // Punto di rilascio per il drag&drop: trascinando un file dal pannello

@@ -4,6 +4,7 @@
 #include <GLFW/glfw3.h>
 #include <filesystem>
 #include <sstream>
+#include <iostream>
 
 namespace fs = std::filesystem;
 
@@ -224,9 +225,9 @@ void Engine::renderSceneToFramebuffer() {
     glViewport(0, 0, m_window->width(), m_window->height());
 }
 
-ObjectId Engine::pickObjectAt(float pixelX, float pixelY) {
-    int w = static_cast<int>(m_lastViewportWidth);
-    int h = static_cast<int>(m_lastViewportHeight);
+ObjectId Engine::pickObjectAt(float fractionX, float fractionY, int viewportWidth, int viewportHeight) {
+    int w = viewportWidth;
+    int h = viewportHeight;
     if (w <= 0 || h <= 0) return kInvalidId;
 
     if (!m_pickingFramebuffer) {
@@ -237,6 +238,14 @@ ObjectId Engine::pickObjectAt(float pixelX, float pixelY) {
 
     glClearColor(0.0f, 0.0f, 0.0f, 1.0f); // nero = id 0 = "nessun oggetto"
     glEnable(GL_DEPTH_TEST);
+    glDepthMask(GL_TRUE);   // forziamo la SCRITTURA della profondità: se questo
+                            // stato fosse rimasto disabilitato da una passata
+                            // ImGui precedente, il test di profondità confronta
+                            // sempre con un buffer "vuoto" mai aggiornato, e
+                            // vince semplicemente l'ultimo oggetto disegnato
+                            // indipendentemente da chi sia davanti o dietro
+                            // (esattamente il sintomo "seleziona quello dietro").
+    glDepthFunc(GL_LESS);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
     float aspect = h > 0 ? static_cast<float>(w) / static_cast<float>(h) : 1.0f;
@@ -260,17 +269,54 @@ ObjectId Engine::pickObjectAt(float pixelX, float pixelY) {
         }
     }
 
-    int px = static_cast<int>(pixelX);
-    int py = static_cast<int>(pixelY);
-    unsigned char pixel[3] = {0, 0, 0};
-    if (px >= 0 && px < w && py >= 0 && py < h) {
-        glReadPixels(px, py, 1, 1, GL_RGB, GL_UNSIGNED_BYTE, pixel);
+    // Stessa identica logica di mappatura usata per renderizzare/visualizzare
+    // questo frame: frazione 0..1 -> pixel nel framebuffer "appena disegnato"
+    // (w,h passati dal chiamante = le dimensioni REALI di QUESTO framebuffer,
+    // non quelle (potenzialmente diverse) del pannello UI di un frame diverso).
+    // Stessa identica logica di mappatura usata per renderizzare/visualizzare
+    // questo frame: frazione 0..1 -> pixel nel framebuffer "appena disegnato".
+    int centerX = static_cast<int>(fractionX * static_cast<float>(w));
+    int centerY = static_cast<int>((1.0f - fractionY) * static_cast<float>(h)); // flip: OpenGL ha origine in basso
+
+    // Leggiamo un piccolo blocco (non un singolo pixel) e prendiamo l'id PIÙ
+    // FREQUENTE al suo interno. Modelli con geometria sovrapposta/duplicata
+    // (comune nei file .obj scaricati: pannelli doppi, interni nascosti)
+    // possono soffrire di z-fighting, dove la GPU risolve le profondità
+    // quasi-identiche in modo leggermente diverso tra la passata visibile e
+    // quella di picking. Un voto di maggioranza su un'area piccola è molto
+    // più stabile del singolo pixel.
+    constexpr int kSampleRadius = 3;
+    std::unordered_map<int, int> votes;
+
+    for (int dy = -kSampleRadius; dy <= kSampleRadius; ++dy) {
+        for (int dx = -kSampleRadius; dx <= kSampleRadius; ++dx) {
+            int px = centerX + dx;
+            int py = centerY + dy;
+            if (px < 0 || px >= w || py < 0 || py >= h) continue;
+
+            unsigned char pixel[3] = {0, 0, 0};
+            glReadPixels(px, py, 1, 1, GL_RGB, GL_UNSIGNED_BYTE, pixel);
+            ObjectId id = colorToId(pixel[0], pixel[1], pixel[2]);
+            if (id == kInvalidId) continue; // non contiamo i voti per "sfondo"
+
+            votes[id]++;
+        }
     }
 
     Framebuffer::unbind();
     glViewport(0, 0, m_window->width(), m_window->height());
 
-    return colorToId(pixel[0], pixel[1], pixel[2]);
+    if (votes.empty()) return kInvalidId; // tutta l'area era sfondo
+
+    int bestId = kInvalidId;
+    int bestCount = 0;
+    for (const auto& [id, count] : votes) {
+        if (count > bestCount) {
+            bestCount = count;
+            bestId = id;
+        }
+    }
+    return static_cast<ObjectId>(bestId);
 }
 
 void Engine::tick() {
@@ -282,6 +328,14 @@ void Engine::tick() {
     updateCameraInput();
 
     renderSceneToFramebuffer();
+
+    // Dimensioni REALI con cui la scena è appena stata renderizzata in questo
+    // frame (quelle che l'utente vedrà nell'immagine): il picking DEVE usare
+    // esattamente queste, non quelle (potenzialmente diverse) che otterremo
+    // dal pannello UI qualche riga più sotto, altrimenti il click si "scollega"
+    // dall'immagine effettivamente mostrata.
+    int renderedWidth = m_sceneFramebuffer->width();
+    int renderedHeight = m_sceneFramebuffer->height();
 
     m_renderer->clear(0.05f, 0.05f, 0.06f, 1.0f);
 
@@ -299,7 +353,16 @@ void Engine::tick() {
     if (result.quitRequested) m_window->requestClose();
 
     if (result.clickedInViewport) {
-        m_selectedObject = pickObjectAt(result.clickPixelX, result.clickPixelY);
+        m_selectedObject = pickObjectAt(result.clickFractionX, result.clickFractionY, renderedWidth, renderedHeight);
+
+        if (const GameObject* picked = m_scene.getObject(m_selectedObject)) {
+            std::cout << "[Picking] Frazione (" << result.clickFractionX << "," << result.clickFractionY
+                       << ") su framebuffer " << renderedWidth << "x" << renderedHeight
+                       << " -> selezionato \"" << picked->name << "\" (id=" << picked->id << ")\n";
+        } else {
+            std::cout << "[Picking] Frazione (" << result.clickFractionX << "," << result.clickFractionY
+                       << ") -> sfondo vuoto, deselezionato\n";
+        }
     }
 
     if (!result.droppedAssetPath.empty()) {
