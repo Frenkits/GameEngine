@@ -1,0 +1,19 @@
+build/
+*.so
+*.pyd
+*.pdb
+*.dll
+__pycache__/
+*.pyc
+.cache/
+compile_commands.json
+python/Debug/
+python/Release/
+
+# Layout dei pannelli salvato da ImGui (si rigenera da solo)
+imgui.ini
+
+# Progetti creati dal Launcher: contengono scene/asset dell'utente,
+# normalmente NON si versionano nel repo del motore stesso.
+# Se invece vuoi tenerli sotto git, commenta o rimuovi questa riga.
+projects/
