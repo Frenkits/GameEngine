@@ -467,10 +467,11 @@ void Engine::updateObjectBodyDrag(float mouseFractionX, float mouseFractionY, fl
 
     // Raggio dalla camera attraverso il mouse, intersecato col piano
     // orizzontale all'altezza ATTUALE dell'oggetto (così scorre alla sua
-    // quota, non "cade" a terra). X/Z seguono il mouse, Y resta invariata.
+    // quota, non "cade" a terra). Aggiungiamo l'offset calcolato al momento
+    // del click, così il movimento è relativo e non "scatta" sotto il cursore.
     Vec3 hit = computeDropWorldPosition(mouseFractionX, mouseFractionY, aspect, m_objectBodyDragPlaneY);
-    obj->transform.position.x = hit.x;
-    obj->transform.position.z = hit.z;
+    obj->transform.position.x = hit.x + m_objectBodyDragOffsetX;
+    obj->transform.position.z = hit.z + m_objectBodyDragOffsetZ;
 }
 
 Vec3 Engine::computeDropWorldPosition(float fractionX, float fractionY, float aspect, float planeY) {
@@ -735,6 +736,11 @@ void Engine::tick() {
     m_window->pollEvents();
     updateCameraInput();
 
+    // Consumati subito (l'evento del sistema operativo può arrivare in
+    // qualsiasi momento), ma li useremo più sotto, dopo aver disegnato i
+    // pannelli: solo allora sappiamo qual è la cartella Assets corrente.
+    std::vector<std::string> externallyDroppedFiles = m_window->consumeDroppedFiles();
+
     renderSceneToFramebuffer();
 
     // Dimensioni REALI con cui la scena è appena stata renderizzata in questo
@@ -781,6 +787,10 @@ void Engine::tick() {
         result.viewportMouseFractionX, result.viewportMouseFractionY,
         renderedWidth, renderedHeight, result.viewportHovered);
 
+    // Continua il drag sul corpo (se attivo) anche nei frame successivi al
+    // click, mentre il tasto resta premuto e il mouse si muove.
+    float dragAspect = renderedHeight > 0 ? static_cast<float>(renderedWidth) / static_cast<float>(renderedHeight) : 1.0f;
+
     if (result.clickedInViewport && !gizmoConsumedInput) {
         m_selectedObject = pickObjectAt(result.clickFractionX, result.clickFractionY, renderedWidth, renderedHeight);
 
@@ -792,6 +802,14 @@ void Engine::tick() {
             if (const GameObject* picked = m_scene.getObject(m_selectedObject)) {
                 m_objectBodyDragActive = true;
                 m_objectBodyDragPlaneY = picked->transform.position.y;
+
+                // Offset tra la posizione reale e il punto cliccato sul
+                // terreno: senza questo, anche il semplice click selezionerebbe
+                // E SPOSTEREBBE l'oggetto fino al punto esatto cliccato.
+                Vec3 hitAtClick = computeDropWorldPosition(result.clickFractionX, result.clickFractionY,
+                                                            dragAspect, m_objectBodyDragPlaneY);
+                m_objectBodyDragOffsetX = picked->transform.position.x - hitAtClick.x;
+                m_objectBodyDragOffsetZ = picked->transform.position.z - hitAtClick.z;
             }
         }
 
@@ -805,13 +823,38 @@ void Engine::tick() {
         }
     }
 
-    // Continua il drag sul corpo (se attivo) anche nei frame successivi al
-    // click, mentre il tasto resta premuto e il mouse si muove.
-    float dragAspect = renderedHeight > 0 ? static_cast<float>(renderedWidth) / static_cast<float>(renderedHeight) : 1.0f;
     updateObjectBodyDrag(result.viewportMouseFractionX, result.viewportMouseFractionY, dragAspect, result.viewportHovered);
 
     if (result.draggedToSceneId != kInvalidId) {
         m_scene.setParent(result.draggedToSceneId, kInvalidId);
+    }
+
+    // File trascinati dentro l'editor da Esplora File (o altro programma del
+    // sistema operativo): li copiamo nella cartella Assets attualmente
+    // mostrata. Da lì l'utente può poi trascinarli nella Scena come già fa
+    // con qualsiasi altro asset (drag&drop interno, già esistente).
+    if (!externallyDroppedFiles.empty()) {
+        std::string destFolder = !result.currentAssetsFolder.empty()
+            ? result.currentAssetsFolder
+            : (m_projectPath.empty() ? "assets" : (m_projectPath + "/assets"));
+
+        std::error_code ec;
+        fs::create_directories(destFolder, ec);
+
+        for (const std::string& srcPath : externallyDroppedFiles) {
+            std::error_code fileEc;
+            if (!fs::is_regular_file(srcPath, fileEc)) {
+                std::cout << "[Import] Ignorato (non è un file): " << srcPath << "\n";
+                continue;
+            }
+            fs::path dst = fs::path(destFolder) / fs::path(srcPath).filename();
+            fs::copy_file(srcPath, dst, fs::copy_options::overwrite_existing, fileEc);
+            if (fileEc) {
+                std::cout << "[Import] Errore copiando \"" << srcPath << "\": " << fileEc.message() << "\n";
+            } else {
+                std::cout << "[Import] Copiato in Assets: " << dst.string() << "\n";
+            }
+        }
     }
 
     if (!result.droppedAssetPath.empty()) {

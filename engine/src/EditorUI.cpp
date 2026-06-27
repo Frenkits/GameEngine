@@ -192,7 +192,7 @@ EditorUI::FrameResult EditorUI::drawPanels(Scene& scene, ObjectId& selectedId,
     drawHierarchyWindow(scene, selectedId);
     drawInspectorWindow(scene, selectedId);
     drawSceneWindow(result, sceneTextureId);
-    drawAssetsWindow(projectPath);
+    drawAssetsWindow(result, projectPath);
 
     return result;
 }
@@ -612,11 +612,12 @@ void EditorUI::drawAssetGridItem(const std::string& fullPath, const std::string&
     ImGui::PopID();
 }
 
-void EditorUI::drawAssetsWindow(const std::string& projectPath) {
+void EditorUI::drawAssetsWindow(FrameResult& result, const std::string& projectPath) {
     ImGui::Begin(kAssetsName);
 
     std::string assetsRoot = projectPath.empty() ? "assets" : (projectPath + "/assets");
     std::string currentDir = m_assetCurrentRelPath.empty() ? assetsRoot : (assetsRoot + "/" + m_assetCurrentRelPath);
+    result.currentAssetsFolder = currentDir;
 
     std::error_code ec;
     fs::create_directories(assetsRoot, ec);

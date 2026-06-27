@@ -112,6 +112,13 @@ private:
     // il gizmo resta per il controllo preciso (incluso l'asse verticale Y).
     bool m_objectBodyDragActive = false;
     float m_objectBodyDragPlaneY = 0.0f;
+    // Offset tra la posizione reale dell'oggetto e il punto del terreno sotto
+    // al cursore AL MOMENTO del click: applicato durante il drag così
+    // l'oggetto si sposta in modo RELATIVO (non "scatta" sotto al cursore).
+    // Senza questo, anche un semplice click (senza muovere il mouse) farebbe
+    // saltare l'oggetto al punto esatto cliccato sul terreno.
+    float m_objectBodyDragOffsetX = 0.0f;
+    float m_objectBodyDragOffsetZ = 0.0f;
     void updateObjectBodyDrag(float mouseFractionX, float mouseFractionY, float aspect, bool viewportHovered);
 
     // Ritorna le matrici view/projection da usare per questo frame: in Play,

@@ -50,6 +50,11 @@ public:
         // trascinarlo nella zona vuota in fondo alla Hierarchy). kInvalidId
         // se nessun drag di questo tipo è avvenuto in questo frame.
         ObjectId draggedToSceneId = kInvalidId;
+
+        // Cartella correntemente mostrata nel pannello Assets (assoluta):
+        // usata da Engine per sapere dove copiare i file trascinati dentro
+        // l'editor da Esplora File (o altro programma del sistema).
+        std::string currentAssetsFolder;
     };
 
     explicit EditorUI(GLFWwindow* windowHandle);
@@ -93,7 +98,7 @@ private:
     void drawSceneWindow(FrameResult& result, unsigned int sceneTextureId);
     void drawPlayWindow(FrameResult& result, unsigned int sceneTextureId);
     void drawViewportImageAndInput(FrameResult& result, unsigned int sceneTextureId);
-    void drawAssetsWindow(const std::string& projectPath);
+    void drawAssetsWindow(FrameResult& result, const std::string& projectPath);
     void drawAssetBreadcrumb(const std::string& assetsRoot);
     void drawAssetGridItem(const std::string& fullPath, const std::string& displayName, bool isFolder);
 };

@@ -58,6 +58,7 @@ Window::Window(int width, int height, const std::string& title)
     glfwSetWindowUserPointer(m_handle, this);
     glfwSetFramebufferSizeCallback(m_handle, framebufferSizeCallback);
     glfwSetScrollCallback(m_handle, scrollCallback);
+    glfwSetDropCallback(m_handle, dropCallback);
 
     if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress)) {
         throw std::runtime_error("Impossibile inizializzare GLAD");
@@ -123,6 +124,20 @@ void Window::scrollCallback(GLFWwindow* window, double xoffset, double yoffset) 
     auto* self = static_cast<Window*>(glfwGetWindowUserPointer(window));
     if (!self) return;
     self->m_scrollAccum += yoffset;
+}
+
+std::vector<std::string> Window::consumeDroppedFiles() {
+    std::vector<std::string> result = std::move(m_droppedFiles);
+    m_droppedFiles.clear();
+    return result;
+}
+
+void Window::dropCallback(GLFWwindow* window, int count, const char** paths) {
+    auto* self = static_cast<Window*>(glfwGetWindowUserPointer(window));
+    if (!self) return;
+    for (int i = 0; i < count; ++i) {
+        self->m_droppedFiles.emplace_back(paths[i]);
+    }
 }
 
 void Window::framebufferSizeCallback(GLFWwindow* window, int width, int height) {

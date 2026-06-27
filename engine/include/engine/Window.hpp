@@ -1,6 +1,7 @@
 #pragma once
 #include <string>
 #include <functional>
+#include <vector>
 
 struct GLFWwindow;
 
@@ -43,6 +44,11 @@ public:
     // resetta l'accumulo (consuma il valore), tipico pattern "delta per frame".
     double consumeScrollDelta();
 
+    // File trascinati dentro la finestra da Esplora File (o altro programma
+    // del sistema operativo): accumulati dall'ultima chiamata, la lettura
+    // consuma (resetta) l'elenco, stesso pattern dello scroll.
+    std::vector<std::string> consumeDroppedFiles();
+
     GLFWwindow* handle() const { return m_handle; }
 
 private:
@@ -51,9 +57,11 @@ private:
     int m_height;
     std::function<void(int, int)> m_resizeCallback;
     double m_scrollAccum = 0.0;
+    std::vector<std::string> m_droppedFiles;
 
     static void framebufferSizeCallback(GLFWwindow* window, int width, int height);
     static void scrollCallback(GLFWwindow* window, double xoffset, double yoffset);
+    static void dropCallback(GLFWwindow* window, int count, const char** paths);
 };
 
 } // namespace engine
