@@ -1,4 +1,5 @@
 #include <pybind11/pybind11.h>
+#include <pybind11/stl.h>
 #include <GLFW/glfw3.h>
 #include "engine/Engine.hpp"
 #include "engine/Launcher.hpp"
@@ -62,7 +63,39 @@ PYBIND11_MODULE(pyengine, m) {
         .def("set_selected_object", &engine::Engine::setSelectedObject, py::arg("id"))
         .def("save_scene", &engine::Engine::saveScene, "Salva la scena nel progetto corrente")
         .def("load_scene", &engine::Engine::loadScene, "Carica la scena dal progetto corrente")
-        .def("get_project_path", &engine::Engine::projectPath);
+        .def("get_project_path", &engine::Engine::projectPath)
+        .def("is_playing", &engine::Engine::isPlaying,
+             "True se l'editor è in modalità Play (vista di gioco a schermo intero)")
+
+        // --- Lettura generica oggetti/script, usata dal runtime script Python ---
+        .def("get_all_object_ids", [](const engine::Engine& self) {
+                std::vector<engine::ObjectId> ids;
+                for (const auto& [id, obj] : self.scene().getAllObjects()) ids.push_back(id);
+                return ids;
+             }, "Lista degli id di tutti i GameObject nella scena")
+        .def("get_object_name", [](const engine::Engine& self, engine::ObjectId id) {
+                const auto* obj = self.scene().getObject(id);
+                return obj ? obj->name : std::string();
+             }, py::arg("id"))
+        .def("get_script_path", [](const engine::Engine& self, engine::ObjectId id) {
+                const auto* obj = self.scene().getObject(id);
+                return obj ? obj->scriptPath : std::string();
+             }, py::arg("id"), "Percorso dello script Python assegnato (vuoto se nessuno)")
+        .def("get_position", [](const engine::Engine& self, engine::ObjectId id) {
+                const auto* obj = self.scene().getObject(id);
+                if (!obj) return py::make_tuple(0.0f, 0.0f, 0.0f);
+                return py::make_tuple(obj->transform.position.x, obj->transform.position.y, obj->transform.position.z);
+             }, py::arg("id"))
+        .def("get_rotation", [](const engine::Engine& self, engine::ObjectId id) {
+                const auto* obj = self.scene().getObject(id);
+                if (!obj) return py::make_tuple(0.0f, 0.0f, 0.0f);
+                return py::make_tuple(obj->transform.rotationDegrees.x, obj->transform.rotationDegrees.y, obj->transform.rotationDegrees.z);
+             }, py::arg("id"))
+        .def("get_scale", [](const engine::Engine& self, engine::ObjectId id) {
+                const auto* obj = self.scene().getObject(id);
+                if (!obj) return py::make_tuple(1.0f, 1.0f, 1.0f);
+                return py::make_tuple(obj->transform.scale.x, obj->transform.scale.y, obj->transform.scale.z);
+             }, py::arg("id"));
 
     py::class_<engine::Launcher>(m, "Launcher")
         .def(py::init<>())

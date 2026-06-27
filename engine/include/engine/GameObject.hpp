@@ -34,6 +34,11 @@ struct GameObject {
     bool isCamera = false;
     float cameraFov = 60.0f;
 
+    // Percorso di uno script Python assegnato a questo oggetto (vuoto = nessuno).
+    // Durante il Play, se il file definisce on_start(engine, obj_id) e/o
+    // on_update(engine, obj_id, dt), vengono chiamati automaticamente da Python.
+    std::string scriptPath;
+
     // Percorso del file .obj importato (vuoto = disegna il cubo segnaposto).
     std::string meshPath;
 

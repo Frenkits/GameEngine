@@ -90,7 +90,8 @@ bool Scene::saveToFile(const std::string& path) const {
             << obj.lightColor[0] << ',' << obj.lightColor[1] << ',' << obj.lightColor[2] << ';'
             << obj.lightIntensity << ';'
             << (obj.isCamera ? 1 : 0) << ';'
-            << obj.cameraFov << '\n';
+            << obj.cameraFov << ';'
+            << obj.scriptPath << '\n';
     }
     return true;
 }
@@ -121,7 +122,7 @@ bool Scene::loadFromFile(const std::string& path) {
         std::stringstream ss(line);
         std::string idStr, parentStr, name, posStr, rotStr, scaleStr, meshPathStr, excludedGroupsStr, groupNameStr, colorStr;
         std::string isLightStr, lightColorStr, lightIntensityStr;
-        std::string isCameraStr, cameraFovStr;
+        std::string isCameraStr, cameraFovStr, scriptPathStr;
         std::getline(ss, idStr, ';');
         std::getline(ss, parentStr, ';');
         std::getline(ss, name, ';');
@@ -135,8 +136,9 @@ bool Scene::loadFromFile(const std::string& path) {
         std::getline(ss, isLightStr, ';');
         std::getline(ss, lightColorStr, ';');
         std::getline(ss, lightIntensityStr, ';');
-        std::getline(ss, isCameraStr, ';');     // assenti nei salvataggi vecchi: restano i default
+        std::getline(ss, isCameraStr, ';');
         std::getline(ss, cameraFovStr, ';');
+        std::getline(ss, scriptPathStr, ';'); // assente nei salvataggi vecchi: resta vuoto
 
         GameObject obj;
         obj.id = std::stoi(idStr);
@@ -172,6 +174,7 @@ bool Scene::loadFromFile(const std::string& path) {
         if (!cameraFovStr.empty()) {
             obj.cameraFov = std::stof(cameraFovStr);
         }
+        obj.scriptPath = scriptPathStr;
 
         m_objects[obj.id] = obj;
         m_nextId = std::max(m_nextId, obj.id + 1);

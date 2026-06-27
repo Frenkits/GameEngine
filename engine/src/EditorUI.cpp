@@ -12,6 +12,7 @@
 #include <algorithm>
 #include <vector>
 #include <cctype>
+#include <cstdlib>
 
 namespace fs = std::filesystem;
 
@@ -23,6 +24,19 @@ namespace {
     constexpr const char* kInspectorName = "Inspector";
     constexpr const char* kSceneName = "Scena";
     constexpr const char* kAssetsName = "Assets";
+
+    // Apre un file con il programma predefinito del sistema (es. Notepad/VS
+    // Code per i .py su Windows, in base alle associazioni file dell'utente).
+    void openFileInDefaultEditor(const std::string& path) {
+#ifdef _WIN32
+        std::string command = "start \"\" \"" + path + "\"";
+#elif __APPLE__
+        std::string command = "open \"" + path + "\"";
+#else
+        std::string command = "xdg-open \"" + path + "\"";
+#endif
+        std::system(command.c_str());
+    }
 }
 
 EditorUI::EditorUI(GLFWwindow* windowHandle) {
@@ -302,6 +316,27 @@ void EditorUI::drawInspectorWindow(Scene& scene, ObjectId selectedId) {
     }
 
     ImGui::Separator();
+    ImGui::Text("Script Python");
+    if (ImGui::Button(obj->scriptPath.empty() ? "(trascina qui un file .py)" : obj->scriptPath.c_str(),
+                       ImVec2(-1, 0)) && !obj->scriptPath.empty()) {
+        openFileInDefaultEditor(obj->scriptPath);
+    }
+    if (ImGui::BeginDragDropTarget()) {
+        if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("ASSET_FILE_PATH")) {
+            std::string path(static_cast<const char*>(payload->Data));
+            if (path.size() >= 3 && path.substr(path.size() - 3) == ".py") {
+                obj->scriptPath = path;
+            }
+        }
+        ImGui::EndDragDropTarget();
+    }
+    if (!obj->scriptPath.empty() && ImGui::Button("Rimuovi script")) {
+        obj->scriptPath.clear();
+    }
+    ImGui::TextWrapped("Lo script viene eseguito automaticamente durante il Play "
+                       "(funzioni on_start/on_update). Crealo dal pannello Assets ('+ Script').");
+
+    ImGui::Separator();
     if (obj->meshPath.empty()) {
         ImGui::TextDisabled("Mesh: (cubo segnaposto)");
     } else {
@@ -456,6 +491,8 @@ void EditorUI::drawAssetGridItem(const std::string& fullPath, const std::string&
     ImVec4 iconColor = isFolder ? ImVec4(0.85f, 0.7f, 0.25f, 1.0f)
                       : (fullPath.size() > 4 && fullPath.substr(fullPath.size() - 4) == ".obj")
                           ? ImVec4(0.3f, 0.55f, 0.9f, 1.0f)
+                      : (fullPath.size() > 3 && fullPath.substr(fullPath.size() - 3) == ".py")
+                          ? ImVec4(0.3f, 0.75f, 0.35f, 1.0f)
                           : ImVec4(0.45f, 0.45f, 0.48f, 1.0f);
 
     bool clicked = ImGui::InvisibleButton("##icon", ImVec2(kIconSize, kIconSize));
@@ -510,6 +547,8 @@ void EditorUI::drawAssetGridItem(const std::string& fullPath, const std::string&
 
     if (isFolder && doubleClicked) {
         m_assetCurrentRelPath = m_assetCurrentRelPath.empty() ? displayName : (m_assetCurrentRelPath + "/" + displayName);
+    } else if (!isFolder && doubleClicked) {
+        openFileInDefaultEditor(fullPath);
     }
     (void)clicked;
 
@@ -544,6 +583,25 @@ void EditorUI::drawAssetsWindow(const std::string& projectPath) {
         }
         fs::create_directory(fs::path(currentDir) / finalName, ec);
     }
+    ImGui::SameLine();
+    if (ImGui::Button("+ Script")) {
+        std::string baseName = "NuovoScript";
+        std::string finalName = baseName + ".py";
+        int suffix = 1;
+        while (fs::exists(fs::path(currentDir) / finalName)) {
+            finalName = baseName + std::to_string(suffix++) + ".py";
+        }
+        std::ofstream out(fs::path(currentDir) / finalName);
+        out << "# Script collegato a un GameObject (trascinalo sul campo \"Script Python\"\n"
+            << "# nell'Inspector per assegnarlo). Eseguito solo durante il Play.\n"
+            << "#\n"
+            << "# engine: l'istanza di pyengine.Engine, per leggere/modificare la scena\n"
+            << "# obj_id: l'id di QUESTO oggetto (quello a cui lo script e' assegnato)\n\n"
+            << "def on_start(engine, obj_id):\n"
+            << "    pass\n\n\n"
+            << "def on_update(engine, obj_id, dt):\n"
+            << "    pass\n";
+    }
 
     static char importPathBuf[260] = "";
     ImGui::SetNextItemWidth(260);
@@ -558,6 +616,7 @@ void EditorUI::drawAssetsWindow(const std::string& projectPath) {
         }
     }
 
+    ImGui::TextDisabled("Doppio click su un file .py per modificarlo con l'editor di testo predefinito.");
     ImGui::Separator();
 
     // --- Griglia: prima le cartelle, poi i file, filtrate dalla ricerca ---
