@@ -8,6 +8,7 @@
 #include <cmath>
 #include <vector>
 #include <algorithm>
+#include <utility>
 
 namespace fs = std::filesystem;
 
@@ -474,6 +475,165 @@ void Engine::updateObjectBodyDrag(float mouseFractionX, float mouseFractionY, fl
     obj->transform.position.z = hit.z + m_objectBodyDragOffsetZ;
 }
 
+void Engine::computeColliderGizmoScreenPositions(const Mat4& view, const Mat4& proj, int viewportW, int viewportH) {
+    m_colliderGizmoVisibleThisFrame = false;
+    if (m_selectedObject == kInvalidId) return;
+
+    const GameObject* obj = m_scene.getObject(m_selectedObject);
+    if (!obj || obj->colliderType == 0) return;
+
+    std::unordered_map<ObjectId, Mat4> worldMatrices = computeWorldMatrices();
+    auto it = worldMatrices.find(m_selectedObject);
+    Mat4 wm = (it != worldMatrices.end()) ? it->second : obj->transform.getMatrix();
+    Vec3 objWorldPos{wm.m[12], wm.m[13], wm.m[14]};
+    Vec3 center = objWorldPos + Vec3{obj->colliderOffset[0], obj->colliderOffset[1], obj->colliderOffset[2]};
+
+    Vec3 eyePos = m_camera.getEyePosition();
+    float dist = (center - eyePos).length();
+    float gizmoLen = std::max(0.5f, dist * 0.15f);
+
+    static const Vec3 kAxisDirs[3] = {
+        Vec3{1.0f, 0.0f, 0.0f}, Vec3{0.0f, 1.0f, 0.0f}, Vec3{0.0f, 0.0f, 1.0f}
+    };
+
+    projectToPixel(center, view, proj, viewportW, viewportH, m_colliderGizmoOriginPixelX, m_colliderGizmoOriginPixelY);
+    for (int i = 0; i < 3; ++i) {
+        Vec3 tip = center + kAxisDirs[i] * gizmoLen;
+        projectToPixel(tip, view, proj, viewportW, viewportH, m_colliderGizmoTipPixelX[i], m_colliderGizmoTipPixelY[i]);
+    }
+
+    m_colliderGizmoVisibleThisFrame = true;
+}
+
+void Engine::renderColliderGizmo(const Mat4& view, const Mat4& proj) {
+    if (m_selectedObject == kInvalidId) return;
+    const GameObject* obj = m_scene.getObject(m_selectedObject);
+    if (!obj || obj->colliderType == 0) return;
+
+    std::unordered_map<ObjectId, Mat4> worldMatrices = computeWorldMatrices();
+    auto it = worldMatrices.find(m_selectedObject);
+    Mat4 wm = (it != worldMatrices.end()) ? it->second : obj->transform.getMatrix();
+    Vec3 objWorldPos{wm.m[12], wm.m[13], wm.m[14]};
+    Vec3 center = objWorldPos + Vec3{obj->colliderOffset[0], obj->colliderOffset[1], obj->colliderOffset[2]};
+
+    Vec3 eyePos = m_camera.getEyePosition();
+    float dist = (center - eyePos).length();
+    float gizmoLen = std::max(0.5f, dist * 0.15f);
+
+    static const Vec3 kAxisDirs[3] = {
+        Vec3{1.0f, 0.0f, 0.0f}, Vec3{0.0f, 1.0f, 0.0f}, Vec3{0.0f, 0.0f, 1.0f}
+    };
+    // Stessi colori per asse del gizmo di posizione (X=rosso,Y=verde,Z=blu),
+    // ma leggermente più scuri di base per distinguerlo visivamente da quello
+    // della posizione quando entrambi sono visibili insieme.
+    static const float kAxisColor[3][3] = {
+        {0.75f, 0.15f, 0.15f},
+        {0.15f, 0.75f, 0.15f},
+        {0.2f, 0.35f, 0.8f}
+    };
+
+    for (int i = 0; i < 3; ++i) {
+        Vec3 tip = center + kAxisDirs[i] * gizmoLen;
+        std::vector<float> line = {center.x, center.y, center.z, tip.x, tip.y, tip.z};
+
+        bool active = (m_colliderGizmoDragAxis == i) || (m_colliderGizmoDragAxis == -1 && m_colliderGizmoHoverAxis == i);
+        float r = kAxisColor[i][0], g = kAxisColor[i][1], b = kAxisColor[i][2];
+        if (active) {
+            r = r * 0.5f + 0.5f; g = g * 0.5f + 0.5f; b = b * 0.5f + 0.5f;
+        }
+        m_renderer->drawLines(line, view, proj, r, g, b);
+    }
+}
+
+bool Engine::updateColliderGizmoInteraction(float mouseFractionX, float mouseFractionY,
+                                             int viewportW, int viewportH, bool viewportHovered) {
+    bool leftPressed = m_window->isMouseButtonPressed(GLFW_MOUSE_BUTTON_LEFT);
+    bool justPressed = leftPressed && !m_colliderGizmoLeftMouseWasPressed;
+    bool justReleased = !leftPressed && m_colliderGizmoLeftMouseWasPressed;
+    m_colliderGizmoLeftMouseWasPressed = leftPressed;
+
+    if (justReleased) {
+        m_colliderGizmoDragAxis = -1;
+    }
+
+    if (!m_colliderGizmoVisibleThisFrame || m_selectedObject == kInvalidId) {
+        m_colliderGizmoDragAxis = -1;
+        m_colliderGizmoHoverAxis = -1;
+        return false;
+    }
+
+    float mousePixelX = mouseFractionX * static_cast<float>(viewportW);
+    float mousePixelY = (1.0f - mouseFractionY) * static_cast<float>(viewportH);
+    constexpr float kHitRadius = 14.0f;
+
+    if (m_colliderGizmoDragAxis != -1) {
+        if (!leftPressed) {
+            m_colliderGizmoDragAxis = -1;
+            return false;
+        }
+
+        float screenDx = m_colliderGizmoTipPixelX[m_colliderGizmoDragAxis] - m_colliderGizmoOriginPixelX;
+        float screenDy = m_colliderGizmoTipPixelY[m_colliderGizmoDragAxis] - m_colliderGizmoOriginPixelY;
+        float screenLen = std::sqrt(screenDx * screenDx + screenDy * screenDy);
+        if (screenLen < 1e-3f) return true;
+
+        float axisDirX = screenDx / screenLen, axisDirY = screenDy / screenLen;
+        float mouseDeltaX = mousePixelX - m_colliderGizmoDragStartMousePixelX;
+        float mouseDeltaY = mousePixelY - m_colliderGizmoDragStartMousePixelY;
+        float scalarPixels = mouseDeltaX * axisDirX + mouseDeltaY * axisDirY;
+
+        GameObject* obj = m_scene.getObject(m_selectedObject);
+        if (obj) {
+            std::unordered_map<ObjectId, Mat4> worldMatrices = computeWorldMatrices();
+            auto it = worldMatrices.find(m_selectedObject);
+            Mat4 wm = (it != worldMatrices.end()) ? it->second : obj->transform.getMatrix();
+            Vec3 objWorldPos{wm.m[12], wm.m[13], wm.m[14]};
+            Vec3 center = objWorldPos + m_colliderGizmoDragStartOffset;
+
+            Vec3 eyePos = m_camera.getEyePosition();
+            float dist = (center - eyePos).length();
+            float gizmoLen = std::max(0.5f, dist * 0.15f);
+
+            static const Vec3 kAxisDirs[3] = {
+                Vec3{1.0f, 0.0f, 0.0f}, Vec3{0.0f, 1.0f, 0.0f}, Vec3{0.0f, 0.0f, 1.0f}
+            };
+            float worldDelta = scalarPixels * (gizmoLen / screenLen);
+            Vec3 newOffset = m_colliderGizmoDragStartOffset + kAxisDirs[m_colliderGizmoDragAxis] * worldDelta;
+            obj->colliderOffset[0] = newOffset.x;
+            obj->colliderOffset[1] = newOffset.y;
+            obj->colliderOffset[2] = newOffset.z;
+        }
+        return true;
+    }
+
+    m_colliderGizmoHoverAxis = -1;
+    if (viewportHovered) {
+        float bestDist = kHitRadius;
+        for (int i = 0; i < 3; ++i) {
+            float d = pointSegmentDistance2D(mousePixelX, mousePixelY,
+                                              m_colliderGizmoOriginPixelX, m_colliderGizmoOriginPixelY,
+                                              m_colliderGizmoTipPixelX[i], m_colliderGizmoTipPixelY[i]);
+            if (d < bestDist) {
+                bestDist = d;
+                m_colliderGizmoHoverAxis = i;
+            }
+        }
+    }
+
+    if (justPressed && m_colliderGizmoHoverAxis != -1) {
+        GameObject* obj = m_scene.getObject(m_selectedObject);
+        if (obj) {
+            m_colliderGizmoDragAxis = m_colliderGizmoHoverAxis;
+            m_colliderGizmoDragStartMousePixelX = mousePixelX;
+            m_colliderGizmoDragStartMousePixelY = mousePixelY;
+            m_colliderGizmoDragStartOffset = Vec3{obj->colliderOffset[0], obj->colliderOffset[1], obj->colliderOffset[2]};
+            return true;
+        }
+    }
+
+    return false;
+}
+
 Vec3 Engine::computeDropWorldPosition(float fractionX, float fractionY, float aspect, float planeY) {
     // Ricostruiamo il raggio dalla camera attraverso il punto di rilascio
     // usando direttamente i vettori della camera orbitale (niente bisogno di
@@ -618,6 +778,92 @@ void Engine::renderSceneToFramebuffer() {
             float gb = isSelected ? 0.1f : 0.2f;
             m_renderer->drawLines(lines, view, proj, gr, gg, gb);
         }
+
+        // Gizmo del collider: mostra la forma usata per il rilevamento
+        // collisioni (Engine::checkCollision), in arancione. Solo in Edit.
+        if (obj.colliderType != 0 && !m_isPlaying) {
+            Vec3 center = Vec3{worldMatrix.m[12], worldMatrix.m[13], worldMatrix.m[14]}
+                        + Vec3{obj.colliderOffset[0], obj.colliderOffset[1], obj.colliderOffset[2]};
+            std::vector<float> colliderLines;
+            auto addColLine = [&](const Vec3& a, const Vec3& b) {
+                colliderLines.push_back(a.x); colliderLines.push_back(a.y); colliderLines.push_back(a.z);
+                colliderLines.push_back(b.x); colliderLines.push_back(b.y); colliderLines.push_back(b.z);
+            };
+
+            if (obj.colliderType == 1) {
+                // Box: 12 spigoli del parallelepipedo, con rotazione propria del collider
+                float hx = obj.colliderBoxSize[0] * 0.5f, hy = obj.colliderBoxSize[1] * 0.5f, hz = obj.colliderBoxSize[2] * 0.5f;
+
+                Mat4 rx = Mat4::rotateX(radians(obj.colliderRotation[0]));
+                Mat4 ry = Mat4::rotateY(radians(obj.colliderRotation[1]));
+                Mat4 rz = Mat4::rotateZ(radians(obj.colliderRotation[2]));
+                Mat4 colRot = rz * ry * rx;
+                auto rotOffset = [&](float x, float y, float z) { return transformDirection(colRot, Vec3{x, y, z}); };
+
+                Vec3 c[8] = {
+                    center + rotOffset(-hx,-hy,-hz), center + rotOffset( hx,-hy,-hz),
+                    center + rotOffset( hx, hy,-hz), center + rotOffset(-hx, hy,-hz),
+                    center + rotOffset(-hx,-hy, hz), center + rotOffset( hx,-hy, hz),
+                    center + rotOffset( hx, hy, hz), center + rotOffset(-hx, hy, hz)
+                };
+                addColLine(c[0],c[1]); addColLine(c[1],c[2]); addColLine(c[2],c[3]); addColLine(c[3],c[0]);
+                addColLine(c[4],c[5]); addColLine(c[5],c[6]); addColLine(c[6],c[7]); addColLine(c[7],c[4]);
+                addColLine(c[0],c[4]); addColLine(c[1],c[5]); addColLine(c[2],c[6]); addColLine(c[3],c[7]);
+
+            } else if (obj.colliderType == 2) {
+                // Sfera: 3 cerchi ortogonali (XY, XZ, YZ)
+                float r = obj.colliderSphereRadius;
+                constexpr int kSegs = 24;
+                for (int axis = 0; axis < 3; ++axis) {
+                    Vec3 prev{};
+                    for (int i = 0; i <= kSegs; ++i) {
+                        float t = (static_cast<float>(i) / kSegs) * 2.0f * PI;
+                        Vec3 p;
+                        if (axis == 0) p = center + Vec3{0.0f, std::cos(t) * r, std::sin(t) * r};
+                        else if (axis == 1) p = center + Vec3{std::cos(t) * r, 0.0f, std::sin(t) * r};
+                        else p = center + Vec3{std::cos(t) * r, std::sin(t) * r, 0.0f};
+                        if (i > 0) addColLine(prev, p);
+                        prev = p;
+                    }
+                }
+
+            } else if (obj.colliderType == 3) {
+                // Capsula: due cerchi orizzontali alle estremità + 4 raccordi
+                // verticali, orientata secondo la rotazione propria del collider
+                // (il suo asse "lungo" di default è Y, ruotato come tutto il resto).
+                float r = obj.colliderCapsuleRadius;
+                float halfH = std::max(0.0f, obj.colliderCapsuleHeight * 0.5f - r);
+
+                Mat4 crx = Mat4::rotateX(radians(obj.colliderRotation[0]));
+                Mat4 cry = Mat4::rotateY(radians(obj.colliderRotation[1]));
+                Mat4 crz = Mat4::rotateZ(radians(obj.colliderRotation[2]));
+                Mat4 colRot = crz * cry * crx;
+                Vec3 up = transformDirection(colRot, Vec3{0.0f, 1.0f, 0.0f}).normalized();
+                Vec3 right = transformDirection(colRot, Vec3{1.0f, 0.0f, 0.0f}).normalized();
+                Vec3 fwd = transformDirection(colRot, Vec3{0.0f, 0.0f, 1.0f}).normalized();
+
+                Vec3 top = center + up * halfH;
+                Vec3 bottom = center - up * halfH;
+                constexpr int kSegs = 16;
+                for (int which = 0; which < 2; ++which) {
+                    Vec3 c = (which == 0) ? top : bottom;
+                    Vec3 prev{};
+                    for (int i = 0; i <= kSegs; ++i) {
+                        float t = (static_cast<float>(i) / kSegs) * 2.0f * PI;
+                        Vec3 p = c + right * (std::cos(t) * r) + fwd * (std::sin(t) * r);
+                        if (i > 0) addColLine(prev, p);
+                        prev = p;
+                    }
+                }
+                for (int i = 0; i < 4; ++i) {
+                    float t = (static_cast<float>(i) / 4.0f) * 2.0f * PI;
+                    Vec3 offs = right * (std::cos(t) * r) + fwd * (std::sin(t) * r);
+                    addColLine(top + offs, bottom + offs);
+                }
+            }
+
+            m_renderer->drawLines(colliderLines, view, proj, 1.0f, 0.55f, 0.1f); // arancione
+        }
     }
 
     // Gizmo di traslazione per l'oggetto selezionato: solo in Edit (in Play
@@ -625,6 +871,8 @@ void Engine::renderSceneToFramebuffer() {
     if (!m_isPlaying) {
         computeGizmoScreenPositions(view, proj, static_cast<int>(m_lastViewportWidth), static_cast<int>(m_lastViewportHeight));
         renderTransformGizmo(view, proj);
+        computeColliderGizmoScreenPositions(view, proj, static_cast<int>(m_lastViewportWidth), static_cast<int>(m_lastViewportHeight));
+        renderColliderGizmo(view, proj);
     }
 
     Framebuffer::unbind();
@@ -779,13 +1027,19 @@ void Engine::tick() {
         }
     }
 
-    // Il gizmo va interrogato SEMPRE (non solo al click) per gestire bene il
-    // drag continuo: ritorna true se questo frame "appartiene" al gizmo
-    // (hover, inizio drag, o drag in corso), nel qual caso non si deve
-    // toccare la selezione con il normale color-picking.
+    // Il gizmo (posizione + maniglie collider) va interrogato SEMPRE (non solo
+    // al click) per gestire bene il drag continuo: ritorna true se questo
+    // frame "appartiene" al gizmo (hover, inizio drag, o drag in corso), nel
+    // qual caso non si deve toccare la selezione con il normale color-picking.
     bool gizmoConsumedInput = updateTransformGizmoInteraction(
         result.viewportMouseFractionX, result.viewportMouseFractionY,
         renderedWidth, renderedHeight, result.viewportHovered);
+
+    bool colliderHandleConsumedInput = updateColliderGizmoInteraction(
+        result.viewportMouseFractionX, result.viewportMouseFractionY,
+        renderedWidth, renderedHeight, result.viewportHovered);
+
+    gizmoConsumedInput = gizmoConsumedInput || colliderHandleConsumedInput;
 
     // Continua il drag sul corpo (se attivo) anche nei frame successivi al
     // click, mentre il tasto resta premuto e il mouse si muove.
@@ -900,6 +1154,39 @@ void Engine::tick() {
     }
 
     m_window->swapBuffers();
+}
+
+bool Engine::checkCollision(ObjectId a, ObjectId b) {
+    const GameObject* objA = m_scene.getObject(a);
+    const GameObject* objB = m_scene.getObject(b);
+    if (!objA || !objB) return false;
+    if (objA->colliderType == 0 || objB->colliderType == 0) return false;
+
+    std::unordered_map<ObjectId, Mat4> worldMatrices = computeWorldMatrices();
+
+    auto centerAndRadius = [&](const GameObject* obj, ObjectId id) -> std::pair<Vec3, float> {
+        auto it = worldMatrices.find(id);
+        Mat4 wm = (it != worldMatrices.end()) ? it->second : obj->transform.getMatrix();
+        Vec3 center = Vec3{wm.m[12], wm.m[13], wm.m[14]}
+                    + Vec3{obj->colliderOffset[0], obj->colliderOffset[1], obj->colliderOffset[2]};
+
+        float radius = 0.5f;
+        if (obj->colliderType == 1) {
+            float hx = obj->colliderBoxSize[0] * 0.5f, hy = obj->colliderBoxSize[1] * 0.5f, hz = obj->colliderBoxSize[2] * 0.5f;
+            radius = std::sqrt(hx * hx + hy * hy + hz * hz); // raggio della sfera che racchiude tutto il box
+        } else if (obj->colliderType == 2) {
+            radius = obj->colliderSphereRadius;
+        } else if (obj->colliderType == 3) {
+            radius = obj->colliderCapsuleRadius + obj->colliderCapsuleHeight * 0.5f; // sovrastima prudente
+        }
+        return {center, radius};
+    };
+
+    auto [centerA, radiusA] = centerAndRadius(objA, a);
+    auto [centerB, radiusB] = centerAndRadius(objB, b);
+
+    float dist = (centerA - centerB).length();
+    return dist <= (radiusA + radiusB);
 }
 
 void Engine::setClearColor(float r, float g, float b, float a) {

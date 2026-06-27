@@ -46,6 +46,14 @@ public:
 
     bool isPlaying() const { return m_isPlaying; }
 
+    // Rilevamento collisioni tra due oggetti (richiamabile dagli script Python).
+    // Approssimazione: ogni collider viene trattato come una sfera avvolgente
+    // (bounding sphere) centrata sulla posizione mondo dell'oggetto — sufficiente
+    // per un "sono vicini?" di base, non distingue rotazione/forma esatta (una
+    // vera SAT/OBB precisa è un possibile sviluppo futuro). Ritorna false se
+    // uno dei due oggetti non esiste o non ha un collider assegnato.
+    bool checkCollision(ObjectId a, ObjectId b);
+
 private:
     std::unique_ptr<Window> m_window;
     std::unique_ptr<Renderer> m_renderer;
@@ -120,6 +128,25 @@ private:
     float m_objectBodyDragOffsetX = 0.0f;
     float m_objectBodyDragOffsetZ = 0.0f;
     void updateObjectBodyDrag(float mouseFractionX, float mouseFractionY, float aspect, bool viewportHovered);
+
+    // --- Gizmo di spostamento per il CENTRO del collider ---
+    // Stesse identiche 3 freccette colorate (X/Y/Z) del gizmo di posizione,
+    // ma applicate a colliderOffset invece che alla posizione dell'oggetto.
+    // Visibile solo quando l'oggetto selezionato ha un collider assegnato.
+    int m_colliderGizmoDragAxis = -1;
+    int m_colliderGizmoHoverAxis = -1;
+    bool m_colliderGizmoLeftMouseWasPressed = false;
+    bool m_colliderGizmoVisibleThisFrame = false;
+    float m_colliderGizmoDragStartMousePixelX = 0.0f, m_colliderGizmoDragStartMousePixelY = 0.0f;
+    Vec3 m_colliderGizmoDragStartOffset{};
+    float m_colliderGizmoOriginPixelX = 0.0f, m_colliderGizmoOriginPixelY = 0.0f;
+    float m_colliderGizmoTipPixelX[3] = {0.0f, 0.0f, 0.0f};
+    float m_colliderGizmoTipPixelY[3] = {0.0f, 0.0f, 0.0f};
+
+    void computeColliderGizmoScreenPositions(const Mat4& view, const Mat4& proj, int viewportW, int viewportH);
+    void renderColliderGizmo(const Mat4& view, const Mat4& proj);
+    bool updateColliderGizmoInteraction(float mouseFractionX, float mouseFractionY,
+                                        int viewportW, int viewportH, bool viewportHovered);
 
     // Ritorna le matrici view/projection da usare per questo frame: in Play,
     // se esiste un oggetto Camera nella scena, usa lui; altrimenti (o in Edit)

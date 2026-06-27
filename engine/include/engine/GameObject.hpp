@@ -39,6 +39,16 @@ struct GameObject {
     // on_update(engine, obj_id, dt), vengono chiamati automaticamente da Python.
     std::string scriptPath;
 
+    // Collisione: forma usata da Engine::checkCollision per il rilevamento.
+    // 0 = nessuna, 1 = Box, 2 = Sfera, 3 = Capsula.
+    int colliderType = 0;
+    float colliderOffset[3] = {0.0f, 0.0f, 0.0f}; // centro del collider, relativo alla posizione dell'oggetto
+    float colliderRotation[3] = {0.0f, 0.0f, 0.0f}; // gradi, indipendente dalla rotazione dell'oggetto stesso
+    float colliderBoxSize[3] = {1.0f, 1.0f, 1.0f};   // dimensioni piene (non half-extent)
+    float colliderSphereRadius = 0.5f;
+    float colliderCapsuleRadius = 0.5f;
+    float colliderCapsuleHeight = 1.0f;              // altezza totale (cilindro + due calotte)
+
     // Percorso del file .obj importato (vuoto = disegna il cubo segnaposto).
     std::string meshPath;
 

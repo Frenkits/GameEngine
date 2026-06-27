@@ -130,7 +130,14 @@ bool Scene::saveToFile(const std::string& path) const {
             << obj.lightIntensity << ';'
             << (obj.isCamera ? 1 : 0) << ';'
             << obj.cameraFov << ';'
-            << obj.scriptPath << '\n';
+            << obj.scriptPath << ';'
+            << obj.colliderType << ';'
+            << obj.colliderOffset[0] << ',' << obj.colliderOffset[1] << ',' << obj.colliderOffset[2] << ';'
+            << obj.colliderRotation[0] << ',' << obj.colliderRotation[1] << ',' << obj.colliderRotation[2] << ';'
+            << obj.colliderBoxSize[0] << ',' << obj.colliderBoxSize[1] << ',' << obj.colliderBoxSize[2] << ';'
+            << obj.colliderSphereRadius << ';'
+            << obj.colliderCapsuleRadius << ';'
+            << obj.colliderCapsuleHeight << '\n';
     }
     return true;
 }
@@ -162,6 +169,8 @@ bool Scene::loadFromFile(const std::string& path) {
         std::string idStr, parentStr, name, posStr, rotStr, scaleStr, meshPathStr, excludedGroupsStr, groupNameStr, colorStr;
         std::string isLightStr, lightColorStr, lightIntensityStr;
         std::string isCameraStr, cameraFovStr, scriptPathStr;
+        std::string colliderTypeStr, colliderOffsetStr, colliderRotationStr, colliderBoxSizeStr, colliderSphereRadiusStr;
+        std::string colliderCapsuleRadiusStr, colliderCapsuleHeightStr;
         std::getline(ss, idStr, ';');
         std::getline(ss, parentStr, ';');
         std::getline(ss, name, ';');
@@ -177,7 +186,14 @@ bool Scene::loadFromFile(const std::string& path) {
         std::getline(ss, lightIntensityStr, ';');
         std::getline(ss, isCameraStr, ';');
         std::getline(ss, cameraFovStr, ';');
-        std::getline(ss, scriptPathStr, ';'); // assente nei salvataggi vecchi: resta vuoto
+        std::getline(ss, scriptPathStr, ';');
+        std::getline(ss, colliderTypeStr, ';');           // assenti nei salvataggi vecchi: restano i default
+        std::getline(ss, colliderOffsetStr, ';');
+        std::getline(ss, colliderRotationStr, ';');
+        std::getline(ss, colliderBoxSizeStr, ';');
+        std::getline(ss, colliderSphereRadiusStr, ';');
+        std::getline(ss, colliderCapsuleRadiusStr, ';');
+        std::getline(ss, colliderCapsuleHeightStr, ';');
 
         GameObject obj;
         obj.id = std::stoi(idStr);
@@ -214,6 +230,28 @@ bool Scene::loadFromFile(const std::string& path) {
             obj.cameraFov = std::stof(cameraFovStr);
         }
         obj.scriptPath = scriptPathStr;
+        if (!colliderTypeStr.empty()) obj.colliderType = std::stoi(colliderTypeStr);
+        if (!colliderOffsetStr.empty()) {
+            Vec3 co = parseVec3(colliderOffsetStr);
+            obj.colliderOffset[0] = co.x;
+            obj.colliderOffset[1] = co.y;
+            obj.colliderOffset[2] = co.z;
+        }
+        if (!colliderRotationStr.empty()) {
+            Vec3 cr = parseVec3(colliderRotationStr);
+            obj.colliderRotation[0] = cr.x;
+            obj.colliderRotation[1] = cr.y;
+            obj.colliderRotation[2] = cr.z;
+        }
+        if (!colliderBoxSizeStr.empty()) {
+            Vec3 bs = parseVec3(colliderBoxSizeStr);
+            obj.colliderBoxSize[0] = bs.x;
+            obj.colliderBoxSize[1] = bs.y;
+            obj.colliderBoxSize[2] = bs.z;
+        }
+        if (!colliderSphereRadiusStr.empty()) obj.colliderSphereRadius = std::stof(colliderSphereRadiusStr);
+        if (!colliderCapsuleRadiusStr.empty()) obj.colliderCapsuleRadius = std::stof(colliderCapsuleRadiusStr);
+        if (!colliderCapsuleHeightStr.empty()) obj.colliderCapsuleHeight = std::stof(colliderCapsuleHeightStr);
 
         m_objects[obj.id] = obj;
         m_nextId = std::max(m_nextId, obj.id + 1);

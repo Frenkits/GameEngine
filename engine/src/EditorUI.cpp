@@ -380,6 +380,32 @@ void EditorUI::drawInspectorWindow(Scene& scene, ObjectId selectedId) {
                        "(funzioni on_start/on_update). Crealo dal pannello Assets ('+ Script').");
 
     ImGui::Separator();
+    ImGui::Text("Collisione");
+    const char* colliderNames[] = {"Nessuna", "Box", "Sfera", "Capsula"};
+    if (ImGui::Combo("Tipo collider", &obj->colliderType, colliderNames, 4)) {
+        // niente da fare oltre all'assegnazione: il Combo scrive già su obj->colliderType
+    }
+    if (obj->colliderType != 0) {
+        ImGui::DragFloat3("Centro (offset)", obj->colliderOffset, 0.05f);
+    }
+    if (obj->colliderType == 1 || obj->colliderType == 3) {
+        ImGui::DragFloat3("Rotazione collider", obj->colliderRotation, 1.0f);
+    }
+    if (obj->colliderType == 1) {
+        ImGui::DragFloat3("Dimensioni Box", obj->colliderBoxSize, 0.05f, 0.01f, 100.0f);
+    } else if (obj->colliderType == 2) {
+        ImGui::DragFloat("Raggio Sfera", &obj->colliderSphereRadius, 0.05f, 0.01f, 50.0f);
+    } else if (obj->colliderType == 3) {
+        ImGui::DragFloat("Raggio Capsula", &obj->colliderCapsuleRadius, 0.05f, 0.01f, 50.0f);
+        ImGui::DragFloat("Altezza Capsula", &obj->colliderCapsuleHeight, 0.05f, 0.01f, 100.0f);
+    }
+    if (obj->colliderType != 0) {
+        ImGui::TextWrapped("Il gizmo arancione mostra la forma usata per le collisioni "
+                           "(engine.check_collision(id_a, id_b) negli script). Le freccette "
+                           "colorate al centro spostano il collider rispetto all'oggetto.");
+    }
+
+    ImGui::Separator();
     if (obj->meshPath.empty()) {
         ImGui::TextDisabled("Mesh: (cubo segnaposto)");
     } else {

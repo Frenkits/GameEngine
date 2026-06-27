@@ -66,6 +66,9 @@ PYBIND11_MODULE(pyengine, m) {
         .def("get_project_path", &engine::Engine::projectPath)
         .def("is_playing", &engine::Engine::isPlaying,
              "True se l'editor è in modalità Play (vista di gioco a schermo intero)")
+        .def("check_collision", &engine::Engine::checkCollision, py::arg("id_a"), py::arg("id_b"),
+             "True se i collider (Box/Sfera/Capsula) dei due oggetti si toccano "
+             "(approssimazione a sfera avvolgente, non distingue forma/rotazione esatta)")
 
         // --- Lettura generica oggetti/script, usata dal runtime script Python ---
         .def("get_all_object_ids", [](const engine::Engine& self) {
