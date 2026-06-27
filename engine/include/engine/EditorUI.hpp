@@ -26,6 +26,11 @@ public:
         // Percorso del file .obj che l'utente ha trascinato dal pannello Assets
         // dentro il pannello Scena in questo frame. Vuoto se nessun drop.
         std::string droppedAssetPath;
+        // Posizione del rilascio, come frazione (0..1) del pannello: usata da
+        // Engine per calcolare DOVE nella scena 3D piazzare l'oggetto importato
+        // (invece di metterlo sempre nello stesso punto fisso).
+        float dropFractionX = 0.5f;
+        float dropFractionY = 0.5f;
 
         // Click sinistro dentro il pannello Scena in questo frame: usato per
         // la selezione "alla Unreal" cliccando direttamente sull'oggetto 3D.

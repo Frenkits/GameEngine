@@ -78,6 +78,11 @@ private:
     // usa la camera orbitale dell'editor.
     void getActiveCameraMatrices(float aspect, Mat4& outView, Mat4& outProj);
 
+    // Calcola dove piazzare un oggetto appena trascinato dagli Assets:
+    // lancia un raggio dalla camera attraverso il punto esatto del rilascio
+    // (fractionX/Y, 0..1) e lo interseca con il piano del terreno (Y=0).
+    Vec3 computeDropWorldPosition(float fractionX, float fractionY, float aspect);
+
     // Composizione gerarchica delle trasformazioni: la matrice "mondo" di un
     // figlio è (matrice mondo del genitore) * (sua matrice locale). Così
     // muovere/ruotare/scalare un oggetto contenitore (es. la cartella radice

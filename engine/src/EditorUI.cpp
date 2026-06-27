@@ -367,6 +367,15 @@ void EditorUI::drawViewportImageAndInput(FrameResult& result, unsigned int scene
     if (ImGui::BeginDragDropTarget()) {
         if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("ASSET_FILE_PATH")) {
             result.droppedAssetPath = std::string(static_cast<const char*>(payload->Data));
+
+            // Posizione esatta del rilascio (non sempre disponibile da
+            // GetMousePos() durante un drop ImGui: usiamo la posizione
+            // corrente del mouse, che in pratica coincide col punto di rilascio).
+            ImVec2 mouse = ImGui::GetMousePos();
+            float localX = mouse.x - imageScreenPos.x;
+            float localY = mouse.y - imageScreenPos.y;
+            result.dropFractionX = localX / avail.x;
+            result.dropFractionY = localY / avail.y;
         }
         ImGui::EndDragDropTarget();
     }

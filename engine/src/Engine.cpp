@@ -240,6 +240,37 @@ void Engine::getActiveCameraMatrices(float aspect, Mat4& outView, Mat4& outProj)
     outProj = m_camera.getProjectionMatrix(aspect);
 }
 
+Vec3 Engine::computeDropWorldPosition(float fractionX, float fractionY, float aspect) {
+    // Ricostruiamo il raggio dalla camera attraverso il punto di rilascio
+    // usando direttamente i vettori della camera orbitale (niente bisogno di
+    // invertire matrici): forward/right/up + FOV/aspect bastano.
+    Vec3 eye = m_camera.getEyePosition();
+    Vec3 forward = (m_camera.target - eye).normalized();
+    Vec3 worldUp{0.0f, 1.0f, 0.0f};
+    Vec3 right = Vec3::cross(forward, worldUp).normalized();
+    Vec3 up = Vec3::cross(right, forward).normalized();
+
+    float ndcX = fractionX * 2.0f - 1.0f;       // -1 (sinistra) .. +1 (destra)
+    float ndcY = 1.0f - fractionY * 2.0f;       // +1 (in alto) .. -1 (in basso)
+    float tanHalfFov = std::tan(radians(m_camera.fovDegrees * 0.5f));
+
+    Vec3 rayDir = (forward
+                   + right * (ndcX * tanHalfFov * aspect)
+                   + up * (ndcY * tanHalfFov)).normalized();
+
+    // Interseca col piano del terreno Y=0. Se il raggio è quasi parallelo al
+    // piano o punta "all'indietro" (sopra l'orizzonte), usa il target della
+    // camera come ripiego, per non piazzare l'oggetto a distanza assurda.
+    const float kMinRayY = 1e-4f;
+    if (std::fabs(rayDir.y) > kMinRayY) {
+        float t = (0.0f - eye.y) / rayDir.y;
+        if (t > 0.0f && t < 1000.0f) {
+            return eye + rayDir * t;
+        }
+    }
+    return m_camera.target;
+}
+
 void Engine::renderSceneToFramebuffer() {
     m_sceneFramebuffer->resize(static_cast<int>(m_lastViewportWidth), static_cast<int>(m_lastViewportHeight));
     m_sceneFramebuffer->bind();
@@ -498,9 +529,19 @@ void Engine::tick() {
     if (!result.droppedAssetPath.empty()) {
         std::string filename = fs::path(result.droppedAssetPath).filename().string();
 
+        // Calcola dove piazzare l'oggetto: un raggio dalla camera attraverso
+        // il punto esatto del rilascio, intersecato col piano del terreno.
+        // Senza questo, ogni oggetto importato finirebbe sempre nello stesso
+        // punto (il target della camera), ammassandosi tutti insieme.
+        float dropAspect = renderedHeight > 0 ? static_cast<float>(renderedWidth) / static_cast<float>(renderedHeight) : 1.0f;
+        Vec3 dropPosition = computeDropWorldPosition(result.dropFractionX, result.dropFractionY, dropAspect);
+
         // Oggetto "contenitore": raggruppa nella Hierarchy tutti i pezzi del
         // file importato, ma non disegna nulla di suo (vedi renderSceneToFramebuffer).
         ObjectId rootId = m_scene.createObject(filename);
+        if (auto* root = m_scene.getObject(rootId)) {
+            root->transform.position = dropPosition;
+        }
 
         std::vector<ObjGroup> groups;
         if (loadObjFileGrouped(result.droppedAssetPath, groups)) {
