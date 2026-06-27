@@ -34,6 +34,13 @@ public:
     void drawCubeUnlit(const Mat4& model, const Mat4& view, const Mat4& projection,
                        float r, float g, float b);
 
+    // Imposta la luce usata dal cubo segnaposto illuminato: chiamalo una
+    // volta per frame, prima di disegnare qualsiasi cubo (stesso scopo di
+    // Mesh::setGlobalLight, ma per lo shader dedicato al cubo).
+    void setGlobalLight(float lightX, float lightY, float lightZ,
+                        float colorR, float colorG, float colorB,
+                        float intensity, float ambient);
+
 private:
     unsigned int m_vao = 0;
     unsigned int m_vbo = 0;

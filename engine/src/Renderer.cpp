@@ -61,26 +61,33 @@ uniform mat4 uView;
 uniform mat4 uProjection;
 
 out vec3 vNormalWorld;
+out vec3 vWorldPos;
 
 void main() {
     vNormalWorld = mat3(uModel) * aNormal;
-    gl_Position = uProjection * uView * uModel * vec4(aPos, 1.0);
+    vec4 worldPos4 = uModel * vec4(aPos, 1.0);
+    vWorldPos = worldPos4.xyz;
+    gl_Position = uProjection * uView * worldPos4;
 }
 )";
 
 static const char* kCubeFragmentSrc = R"(
 #version 330 core
 in vec3 vNormalWorld;
+in vec3 vWorldPos;
 uniform vec3 uColor;
 out vec4 FragColor;
 
-const vec3 kLightDir = normalize(vec3(0.4, -1.0, 0.35));
-const float kAmbient = 0.35;
+uniform vec3 uLightPos;
+uniform vec3 uLightColor;
+uniform float uLightIntensity;
+uniform float uAmbient;
 
 void main() {
     vec3 N = normalize(vNormalWorld);
-    float diffuse = max(dot(N, -kLightDir), 0.0);
-    float lighting = kAmbient + (1.0 - kAmbient) * diffuse;
+    vec3 L = normalize(uLightPos - vWorldPos);
+    float diffuse = max(dot(N, L), 0.0);
+    vec3 lighting = vec3(uAmbient) + (1.0 - uAmbient) * diffuse * uLightColor * uLightIntensity;
     FragColor = vec4(uColor * lighting, 1.0);
 }
 )";
@@ -269,6 +276,16 @@ void Renderer::drawCubeUnlit(const Mat4& model, const Mat4& view, const Mat4& pr
     glBindVertexArray(m_cubeVao);
     glDrawArrays(GL_TRIANGLES, 0, 36);
     glBindVertexArray(0);
+}
+
+void Renderer::setGlobalLight(float lightX, float lightY, float lightZ,
+                              float colorR, float colorG, float colorB,
+                              float intensity, float ambient) {
+    m_cubeShader->bind();
+    m_cubeShader->setUniform3f("uLightPos", lightX, lightY, lightZ);
+    m_cubeShader->setUniform3f("uLightColor", colorR, colorG, colorB);
+    m_cubeShader->setUniform1f("uLightIntensity", intensity);
+    m_cubeShader->setUniform1f("uAmbient", ambient);
 }
 
 } // namespace engine

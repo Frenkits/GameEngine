@@ -16,31 +16,37 @@ uniform mat4 uView;
 uniform mat4 uProjection;
 
 out vec3 vNormalWorld;
+out vec3 vWorldPos;
 
 void main() {
-    // Approssimazione "normal matrix" valida per scale uniformi (sufficiente
-    // per l'editor: se in futuro servono scale non uniformi estreme, va
-    // sostituita con transpose(inverse(mat3(uModel))) ).
     vNormalWorld = mat3(uModel) * aNormal;
-    gl_Position = uProjection * uView * uModel * vec4(aPos, 1.0);
+    vec4 worldPos4 = uModel * vec4(aPos, 1.0);
+    vWorldPos = worldPos4.xyz;
+    gl_Position = uProjection * uView * worldPos4;
 }
 )";
 
     const char* kMeshFragmentSrc = R"(
 #version 330 core
 in vec3 vNormalWorld;
+in vec3 vWorldPos;
 uniform vec3 uColor;
 out vec4 FragColor;
 
-// Luce direzionale fissa + ambient: semplice ma dà già la sensazione di
-// "volume" rispetto al flat color puro di prima.
-const vec3 kLightDir = normalize(vec3(0.4, -1.0, 0.35));
-const float kAmbient = 0.35;
+// Luce vera, impostata una volta per frame da Engine in base all'oggetto
+// "Luce" presente nella scena (posizione/colore/intensità modificabili
+// dall'Inspector). Se non c'è nessuna luce nella scena, Engine passa una
+// posizione/colore di default così la scena non resta mai completamente buia.
+uniform vec3 uLightPos;
+uniform vec3 uLightColor;
+uniform float uLightIntensity;
+uniform float uAmbient;
 
 void main() {
     vec3 N = normalize(vNormalWorld);
-    float diffuse = max(dot(N, -kLightDir), 0.0);
-    float lighting = kAmbient + (1.0 - kAmbient) * diffuse;
+    vec3 L = normalize(uLightPos - vWorldPos);
+    float diffuse = max(dot(N, L), 0.0);
+    vec3 lighting = vec3(uAmbient) + (1.0 - uAmbient) * diffuse * uLightColor * uLightIntensity;
     FragColor = vec4(uColor * lighting, 1.0);
 }
 )";
@@ -139,6 +145,17 @@ void Mesh::drawUnlit(const Mat4& model, const Mat4& view, const Mat4& projection
     glBindVertexArray(m_vao);
     glDrawArrays(GL_TRIANGLES, 0, m_vertexCount);
     glBindVertexArray(0);
+}
+
+void Mesh::setGlobalLight(float lightX, float lightY, float lightZ,
+                          float colorR, float colorG, float colorB,
+                          float intensity, float ambient) {
+    Shader& shader = meshShader();
+    shader.bind();
+    shader.setUniform3f("uLightPos", lightX, lightY, lightZ);
+    shader.setUniform3f("uLightColor", colorR, colorG, colorB);
+    shader.setUniform1f("uLightIntensity", intensity);
+    shader.setUniform1f("uAmbient", ambient);
 }
 
 } // namespace engine

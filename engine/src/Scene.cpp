@@ -85,7 +85,10 @@ bool Scene::saveToFile(const std::string& path) const {
             << obj.transform.rotationDegrees.x << ',' << obj.transform.rotationDegrees.y << ',' << obj.transform.rotationDegrees.z << ';'
             << obj.transform.scale.x << ',' << obj.transform.scale.y << ',' << obj.transform.scale.z << ';'
             << obj.meshPath << ';' << obj.excludedGroups << ';' << obj.groupName << ';'
-            << obj.baseColor[0] << ',' << obj.baseColor[1] << ',' << obj.baseColor[2] << '\n';
+            << obj.baseColor[0] << ',' << obj.baseColor[1] << ',' << obj.baseColor[2] << ';'
+            << (obj.isLight ? 1 : 0) << ';'
+            << obj.lightColor[0] << ',' << obj.lightColor[1] << ',' << obj.lightColor[2] << ';'
+            << obj.lightIntensity << '\n';
     }
     return true;
 }
@@ -115,6 +118,7 @@ bool Scene::loadFromFile(const std::string& path) {
         if (line.empty()) continue;
         std::stringstream ss(line);
         std::string idStr, parentStr, name, posStr, rotStr, scaleStr, meshPathStr, excludedGroupsStr, groupNameStr, colorStr;
+        std::string isLightStr, lightColorStr, lightIntensityStr;
         std::getline(ss, idStr, ';');
         std::getline(ss, parentStr, ';');
         std::getline(ss, name, ';');
@@ -124,7 +128,10 @@ bool Scene::loadFromFile(const std::string& path) {
         std::getline(ss, meshPathStr, ';');
         std::getline(ss, excludedGroupsStr, ';');
         std::getline(ss, groupNameStr, ';');
-        std::getline(ss, colorStr, ';'); // assente nei salvataggi vecchi: resta il default del costruttore
+        std::getline(ss, colorStr, ';');
+        std::getline(ss, isLightStr, ';');        // assenti nei salvataggi vecchi: restano i default
+        std::getline(ss, lightColorStr, ';');
+        std::getline(ss, lightIntensityStr, ';');
 
         GameObject obj;
         obj.id = std::stoi(idStr);
@@ -141,6 +148,18 @@ bool Scene::loadFromFile(const std::string& path) {
             obj.baseColor[0] = c.x;
             obj.baseColor[1] = c.y;
             obj.baseColor[2] = c.z;
+        }
+        if (!isLightStr.empty()) {
+            obj.isLight = (isLightStr == "1");
+        }
+        if (!lightColorStr.empty()) {
+            Vec3 lc = parseVec3(lightColorStr);
+            obj.lightColor[0] = lc.x;
+            obj.lightColor[1] = lc.y;
+            obj.lightColor[2] = lc.z;
+        }
+        if (!lightIntensityStr.empty()) {
+            obj.lightIntensity = std::stof(lightIntensityStr);
         }
 
         m_objects[obj.id] = obj;

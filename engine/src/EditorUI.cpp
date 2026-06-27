@@ -8,6 +8,10 @@
 #include <filesystem>
 #include <fstream>
 #include <cstdio>
+#include <sstream>
+#include <algorithm>
+#include <vector>
+#include <cctype>
 
 namespace fs = std::filesystem;
 
@@ -75,7 +79,7 @@ void EditorUI::setupDockingLayout() {
     ImGui::DockBuilderFinish(dockspaceId);
 }
 
-void EditorUI::drawMenuBar(FrameResult& result) {
+void EditorUI::drawMenuBar(FrameResult& result, bool isPlaying) {
     if (ImGui::BeginMenuBar()) {
         if (ImGui::BeginMenu("File")) {
             if (ImGui::MenuItem("Salva Scena", "Ctrl+S")) {
@@ -90,6 +94,18 @@ void EditorUI::drawMenuBar(FrameResult& result) {
             }
             ImGui::EndMenu();
         }
+
+        ImGui::Separator();
+        if (!isPlaying) {
+            if (ImGui::MenuItem("> PLAY")) {
+                result.togglePlayRequested = true;
+            }
+        } else {
+            if (ImGui::MenuItem("[] STOP")) {
+                result.togglePlayRequested = true;
+            }
+        }
+
         ImGui::EndMenuBar();
     }
 
@@ -117,8 +133,18 @@ void EditorUI::handleShortcuts(Scene& scene, ObjectId& selectedId) {
 }
 
 EditorUI::FrameResult EditorUI::drawPanels(Scene& scene, ObjectId& selectedId,
-                                            unsigned int sceneTextureId, const std::string& projectPath) {
+                                            unsigned int sceneTextureId, const std::string& projectPath,
+                                            bool isPlaying) {
     FrameResult result;
+
+    // Durante il Play non creiamo affatto la finestra "contenitore" dell'editor
+    // (quella che ospita la menu bar e il dockspace): evita qualunque rischio
+    // che il suo sfondo (anche solo semi-trasparente) finisca sopra la vista
+    // di gioco per questioni di ordine di disegno tra finestre ImGui.
+    if (isPlaying) {
+        drawPlayWindow(result, sceneTextureId);
+        return result;
+    }
 
     // --- Dockspace a schermo intero, con menu bar ---
     ImGuiViewport* viewport = ImGui::GetMainViewport();
@@ -137,7 +163,7 @@ EditorUI::FrameResult EditorUI::drawPanels(Scene& scene, ObjectId& selectedId,
     ImGui::Begin("EditorRoot", nullptr, hostFlags);
     ImGui::PopStyleVar(3);
 
-    drawMenuBar(result);
+    drawMenuBar(result, isPlaying);
 
     ImGuiID dockspaceId = ImGui::GetID(kDockspaceName);
     if (!m_dockingLayoutBuilt) {
@@ -190,7 +216,12 @@ void EditorUI::drawHierarchyWindow(Scene& scene, ObjectId& selectedId) {
     }
     ImGui::SameLine();
     if (ImGui::Button("+ Luce")) {
-        selectedId = scene.createObject("Luce");
+        ObjectId id = scene.createObject("Luce");
+        if (auto* obj = scene.getObject(id)) {
+            obj->isLight = true;
+            obj->transform.position = {5.0f, 8.0f, 5.0f}; // posizione di default: in alto, ben visibile
+        }
+        selectedId = id;
     }
 
     if (ImGui::Button("Duplica (Ctrl+D)") && selectedId != kInvalidId) {
@@ -245,6 +276,14 @@ void EditorUI::drawInspectorWindow(Scene& scene, ObjectId selectedId) {
     ImGui::ColorEdit3("Colore", obj->baseColor);
 
     ImGui::Separator();
+    ImGui::Checkbox("E' una sorgente di luce", &obj->isLight);
+    if (obj->isLight) {
+        ImGui::ColorEdit3("Colore luce", obj->lightColor);
+        ImGui::DragFloat("Intensita'", &obj->lightIntensity, 0.05f, 0.0f, 10.0f);
+        ImGui::TextWrapped("La posizione di questo oggetto (Transform sopra) determina da dove arriva la luce.");
+    }
+
+    ImGui::Separator();
     if (obj->meshPath.empty()) {
         ImGui::TextDisabled("Mesh: (cubo segnaposto)");
     } else {
@@ -273,10 +312,7 @@ void EditorUI::drawInspectorWindow(Scene& scene, ObjectId selectedId) {
     ImGui::End();
 }
 
-void EditorUI::drawSceneWindow(FrameResult& result, unsigned int sceneTextureId) {
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
-    ImGui::Begin(kSceneName);
-
+void EditorUI::drawViewportImageAndInput(FrameResult& result, unsigned int sceneTextureId) {
     ImVec2 avail = ImGui::GetContentRegionAvail();
     if (avail.x < 1.0f) avail.x = 1.0f;
     if (avail.y < 1.0f) avail.y = 1.0f;
@@ -299,19 +335,13 @@ void EditorUI::drawSceneWindow(FrameResult& result, unsigned int sceneTextureId)
         float localY = mouse.y - imageScreenPos.y; // origine in alto, Y verso il basso
 
         // IMPORTANTE: salviamo la posizione del click come FRAZIONE (0..1)
-        // della dimensione del pannello, non come pixel assoluti. Il
-        // framebuffer della scena potrebbe avere dimensioni leggermente
-        // diverse da "avail" (viene ridimensionato con un frame di ritardo),
-        // quindi una coordinata proporzionale resta corretta in entrambi i
-        // casi, mentre un pixel assoluto si "scollega" se le dimensioni non
-        // coincidono esattamente tra il frame visualizzato e quello del click.
+        // della dimensione del pannello, non come pixel assoluti: vedi
+        // commento più dettagliato nella cronologia, in breve evita
+        // disallineamenti se il framebuffer ha dimensioni leggermente diverse
+        // dal pannello UI in un dato frame.
         result.clickedInViewport = true;
         result.clickFractionX = localX / avail.x;
         result.clickFractionY = localY / avail.y; // 0 = in alto, 1 = in basso
-
-        printf("[ClickDebug] imageScreenPos=(%.1f,%.1f) mouseAbs=(%.1f,%.1f) avail=(%.1f,%.1f) local=(%.1f,%.1f) frazione=(%.3f,%.3f)\n",
-               imageScreenPos.x, imageScreenPos.y, mouse.x, mouse.y, avail.x, avail.y,
-               localX, localY, result.clickFractionX, result.clickFractionY);
     }
 
     // Punto di rilascio per il drag&drop: trascinando un file dal pannello
@@ -322,52 +352,240 @@ void EditorUI::drawSceneWindow(FrameResult& result, unsigned int sceneTextureId)
         }
         ImGui::EndDragDropTarget();
     }
+}
+
+void EditorUI::drawSceneWindow(FrameResult& result, unsigned int sceneTextureId) {
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
+    ImGui::Begin(kSceneName);
+
+    drawViewportImageAndInput(result, sceneTextureId);
 
     ImGui::End();
     ImGui::PopStyleVar();
 }
 
+void EditorUI::drawPlayWindow(FrameResult& result, unsigned int sceneTextureId) {
+    // Finestra a schermo intero (non dockabile): è la "finestra di gioco".
+    ImGuiViewport* viewport = ImGui::GetMainViewport();
+    ImGui::SetNextWindowPos(viewport->WorkPos);
+    ImGui::SetNextWindowSize(viewport->WorkSize);
+
+    ImGuiWindowFlags flags = ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
+        ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse |
+        ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoNavFocus;
+
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
+    ImGui::Begin("##PlayView", nullptr, flags);
+
+    drawViewportImageAndInput(result, sceneTextureId);
+
+    // Bottone "Stop" flottante sopra l'immagine (disegnato dopo, quindi
+    // visivamente in primo piano nella stessa finestra).
+    ImGui::SetCursorScreenPos(ImVec2(ImGui::GetWindowPos().x + 12, ImGui::GetWindowPos().y + 12));
+    if (ImGui::Button("[] STOP")) {
+        result.togglePlayRequested = true;
+    }
+
+    ImGui::End();
+    ImGui::PopStyleVar();
+}
+
+void EditorUI::drawAssetBreadcrumb(const std::string& assetsRoot) {
+    // "Assets" (radice) + un bottone per ogni segmento del percorso corrente,
+    // cliccabile per saltare direttamente a quel livello (come in Unreal).
+    if (ImGui::SmallButton("Assets")) {
+        m_assetCurrentRelPath.clear();
+    }
+
+    if (!m_assetCurrentRelPath.empty()) {
+        std::string accumulated;
+        std::stringstream ss(m_assetCurrentRelPath);
+        std::string segment;
+        while (std::getline(ss, segment, '/')) {
+            if (segment.empty()) continue;
+            ImGui::SameLine();
+            ImGui::TextUnformatted("/");
+            ImGui::SameLine();
+
+            accumulated = accumulated.empty() ? segment : (accumulated + "/" + segment);
+            ImGui::PushID(accumulated.c_str());
+            if (ImGui::SmallButton(segment.c_str())) {
+                m_assetCurrentRelPath = accumulated;
+            }
+            ImGui::PopID();
+        }
+    }
+}
+
+void EditorUI::drawAssetGridItem(const std::string& fullPath, const std::string& displayName, bool isFolder) {
+    constexpr float kIconSize = 64.0f;
+    ImGui::PushID(fullPath.c_str());
+
+    ImVec2 cursorStart = ImGui::GetCursorScreenPos();
+    ImDrawList* drawList = ImGui::GetWindowDrawList();
+
+    // "Icona": un rettangolo colorato (cartella = oro, .obj = blu, altro = grigio).
+    // Niente thumbnail vere per ora: nessun loader di immagini nel motore ancora.
+    ImVec4 iconColor = isFolder ? ImVec4(0.85f, 0.7f, 0.25f, 1.0f)
+                      : (fullPath.size() > 4 && fullPath.substr(fullPath.size() - 4) == ".obj")
+                          ? ImVec4(0.3f, 0.55f, 0.9f, 1.0f)
+                          : ImVec4(0.45f, 0.45f, 0.48f, 1.0f);
+
+    bool clicked = ImGui::InvisibleButton("##icon", ImVec2(kIconSize, kIconSize));
+    bool doubleClicked = ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left);
+    bool hovered = ImGui::IsItemHovered();
+
+    drawList->AddRectFilled(cursorStart, ImVec2(cursorStart.x + kIconSize, cursorStart.y + kIconSize),
+                             ImGui::ColorConvertFloat4ToU32(iconColor), 6.0f);
+    if (hovered) {
+        drawList->AddRect(cursorStart, ImVec2(cursorStart.x + kIconSize, cursorStart.y + kIconSize),
+                           ImGui::ColorConvertFloat4ToU32(ImVec4(1, 1, 1, 0.6f)), 6.0f, 0, 2.0f);
+    }
+
+    // Drag&drop: solo i file (non le cartelle) possono essere trascinati nella Scena.
+    if (!isFolder && ImGui::BeginDragDropSource(ImGuiDragDropFlags_None)) {
+        ImGui::SetDragDropPayload("ASSET_FILE_PATH", fullPath.c_str(), fullPath.size() + 1);
+        ImGui::Text("%s", displayName.c_str());
+        ImGui::EndDragDropSource();
+    }
+
+    // Nome sotto l'icona, troncato se troppo lungo, oppure campo di editing se in rinomina
+    if (m_assetRenamingPath == fullPath) {
+        ImGui::SetNextItemWidth(kIconSize);
+        ImGui::SetKeyboardFocusHere();
+        if (ImGui::InputText("##rename", m_assetRenameBuffer, sizeof(m_assetRenameBuffer),
+                              ImGuiInputTextFlags_EnterReturnsTrue)) {
+            std::error_code ec;
+            fs::path newPath = fs::path(fullPath).parent_path() / m_assetRenameBuffer;
+            fs::rename(fullPath, newPath, ec);
+            m_assetRenamingPath.clear();
+        }
+        if (ImGui::IsItemDeactivated() && !ImGui::IsItemDeactivatedAfterEdit()) {
+            m_assetRenamingPath.clear(); // Esc o click altrove: annulla
+        }
+    } else {
+        ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + kIconSize);
+        ImGui::TextWrapped("%s", displayName.c_str());
+        ImGui::PopTextWrapPos();
+    }
+
+    // Menu contestuale (tasto destro)
+    if (ImGui::BeginPopupContextItem("##ctx")) {
+        if (ImGui::MenuItem("Rinomina")) {
+            m_assetRenamingPath = fullPath;
+            snprintf(m_assetRenameBuffer, sizeof(m_assetRenameBuffer), "%s", displayName.c_str());
+        }
+        if (ImGui::MenuItem("Elimina")) {
+            m_assetPendingDelete = fullPath;
+        }
+        ImGui::EndPopup();
+    }
+
+    if (isFolder && doubleClicked) {
+        m_assetCurrentRelPath = m_assetCurrentRelPath.empty() ? displayName : (m_assetCurrentRelPath + "/" + displayName);
+    }
+    (void)clicked;
+
+    ImGui::PopID();
+}
+
 void EditorUI::drawAssetsWindow(const std::string& projectPath) {
     ImGui::Begin(kAssetsName);
 
-    std::string assetsDir = projectPath.empty() ? "assets" : (projectPath + "/assets");
+    std::string assetsRoot = projectPath.empty() ? "assets" : (projectPath + "/assets");
+    std::string currentDir = m_assetCurrentRelPath.empty() ? assetsRoot : (assetsRoot + "/" + m_assetCurrentRelPath);
+
+    std::error_code ec;
+    fs::create_directories(assetsRoot, ec);
+
+    // --- Barra in alto: breadcrumb, ricerca, nuova cartella, import ---
+    drawAssetBreadcrumb(assetsRoot);
+
+    ImGui::SetNextItemWidth(180);
+    char searchBuf[128];
+    snprintf(searchBuf, sizeof(searchBuf), "%s", m_assetSearchFilter.c_str());
+    if (ImGui::InputTextWithHint("##search", "Cerca...", searchBuf, sizeof(searchBuf))) {
+        m_assetSearchFilter = searchBuf;
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("+ Cartella")) {
+        std::string baseName = "NuovaCartella";
+        std::string finalName = baseName;
+        int suffix = 1;
+        while (fs::exists(fs::path(currentDir) / finalName)) {
+            finalName = baseName + std::to_string(suffix++);
+        }
+        fs::create_directory(fs::path(currentDir) / finalName, ec);
+    }
 
     static char importPathBuf[260] = "";
-    ImGui::TextDisabled("Cartella: %s", assetsDir.c_str());
-    ImGui::InputText("Percorso file da importare", importPathBuf, sizeof(importPathBuf));
+    ImGui::SetNextItemWidth(260);
+    ImGui::InputTextWithHint("##importpath", "Percorso file da importare...", importPathBuf, sizeof(importPathBuf));
     ImGui::SameLine();
     if (ImGui::Button("Importa")) {
-        std::error_code ec;
-        fs::create_directories(assetsDir, ec);
         fs::path src(importPathBuf);
-        if (!ec && fs::exists(src)) {
-            fs::path dst = fs::path(assetsDir) / src.filename();
+        if (fs::exists(src)) {
+            fs::path dst = fs::path(currentDir) / src.filename();
             fs::copy_file(src, dst, fs::copy_options::overwrite_existing, ec);
+            importPathBuf[0] = '\0';
         }
     }
 
     ImGui::Separator();
 
-    std::error_code ec;
-    if (fs::exists(assetsDir, ec) && fs::is_directory(assetsDir, ec)) {
-        for (const auto& entry : fs::directory_iterator(assetsDir, ec)) {
-            std::string fullPath = entry.path().string();
-            std::string filename = entry.path().filename().string();
-
-            ImGui::Selectable(filename.c_str());
-
-            // Sorgente del drag&drop: rilasciandolo sopra il pannello "Scena"
-            // crea un GameObject con questa mesh (solo i file .obj hanno
-            // effetto per ora; altri tipi restano semplicemente non gestiti).
-            if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_None)) {
-                ImGui::SetDragDropPayload("ASSET_FILE_PATH", fullPath.c_str(),
-                                          fullPath.size() + 1); // +1 per il terminatore '\0'
-                ImGui::Text("%s", filename.c_str());
-                ImGui::EndDragDropSource();
+    // --- Griglia: prima le cartelle, poi i file, filtrate dalla ricerca ---
+    std::vector<fs::directory_entry> folders, files;
+    if (fs::exists(currentDir, ec) && fs::is_directory(currentDir, ec)) {
+        for (const auto& entry : fs::directory_iterator(currentDir, ec)) {
+            std::string name = entry.path().filename().string();
+            if (!m_assetSearchFilter.empty()) {
+                std::string nameLower = name, filterLower = m_assetSearchFilter;
+                std::transform(nameLower.begin(), nameLower.end(), nameLower.begin(), ::tolower);
+                std::transform(filterLower.begin(), filterLower.end(), filterLower.begin(), ::tolower);
+                if (nameLower.find(filterLower) == std::string::npos) continue;
             }
+            if (entry.is_directory()) folders.push_back(entry);
+            else files.push_back(entry);
         }
-    } else {
-        ImGui::TextDisabled("(cartella assets vuota o non ancora creata)");
+    }
+
+    constexpr float kCellWidth = 80.0f;
+    float availWidth = ImGui::GetContentRegionAvail().x;
+    int columns = std::max(1, static_cast<int>(availWidth / kCellWidth));
+    int col = 0;
+
+    for (const auto& entry : folders) {
+        drawAssetGridItem(entry.path().string(), entry.path().filename().string(), true);
+        if (++col < columns) ImGui::SameLine(); else col = 0;
+    }
+    for (const auto& entry : files) {
+        drawAssetGridItem(entry.path().string(), entry.path().filename().string(), false);
+        if (++col < columns) ImGui::SameLine(); else col = 0;
+    }
+
+    if (folders.empty() && files.empty()) {
+        ImGui::TextDisabled("(cartella vuota)");
+    }
+
+    // --- Conferma eliminazione ---
+    if (!m_assetPendingDelete.empty()) {
+        ImGui::OpenPopup("Conferma eliminazione");
+    }
+    if (ImGui::BeginPopupModal("Conferma eliminazione", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+        ImGui::Text("Eliminare \"%s\"?", fs::path(m_assetPendingDelete).filename().string().c_str());
+        ImGui::TextDisabled("Operazione irreversibile.");
+        if (ImGui::Button("Elimina", ImVec2(120, 0))) {
+            std::error_code delEc;
+            fs::remove_all(m_assetPendingDelete, delEc);
+            m_assetPendingDelete.clear();
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Annulla", ImVec2(120, 0))) {
+            m_assetPendingDelete.clear();
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::EndPopup();
     }
 
     ImGui::End();

@@ -67,4 +67,9 @@ void Shader::setUniform3f(const std::string& name, float x, float y, float z) co
     glUniform3f(loc, x, y, z);
 }
 
+void Shader::setUniform1f(const std::string& name, float value) const {
+    int loc = glGetUniformLocation(m_id, name.c_str());
+    glUniform1f(loc, value);
+}
+
 } // namespace engine

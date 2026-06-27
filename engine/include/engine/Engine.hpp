@@ -44,6 +44,8 @@ public:
     void saveScene();
     void loadScene();
 
+    bool isPlaying() const { return m_isPlaying; }
+
 private:
     std::unique_ptr<Window> m_window;
     std::unique_ptr<Renderer> m_renderer;
@@ -54,6 +56,7 @@ private:
     OrbitCamera m_camera;
     ObjectId m_selectedObject = kInvalidId;
     std::string m_projectPath;
+    bool m_isPlaying = false; // true = vista di gioco a schermo intero (Play mode)
 
     float m_clearColor[4] = {0.1f, 0.1f, 0.12f, 1.0f};
     double m_lastFrameTime = 0.0;

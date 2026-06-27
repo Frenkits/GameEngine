@@ -28,6 +28,12 @@ public:
     void drawUnlit(const Mat4& model, const Mat4& view, const Mat4& projection,
                    float r, float g, float b) const;
 
+    // Imposta la luce usata da TUTTE le Mesh (shader condiviso): chiamalo una
+    // volta per frame, prima di disegnare qualsiasi oggetto illuminato.
+    static void setGlobalLight(float lightX, float lightY, float lightZ,
+                               float colorR, float colorG, float colorB,
+                               float intensity, float ambient);
+
     bool isValid() const { return m_vertexCount > 0; }
 
 private:

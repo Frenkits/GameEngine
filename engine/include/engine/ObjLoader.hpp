@@ -12,6 +12,11 @@ namespace engine {
 struct ObjGroup {
     std::string name;
     std::vector<float> vertices; // posizioni triangolate e appiattite (x,y,z, x,y,z, ...)
+
+    // Colore del materiale originale (letto dal file .mtl associato, se
+    // presente). Default: grigio neutro, come il colore di default dei
+    // GameObject creati senza import.
+    float color[3] = {0.7f, 0.7f, 0.75f};
 };
 
 // Carica TUTTI i gruppi del file separatamente. Stampa anche un riassunto

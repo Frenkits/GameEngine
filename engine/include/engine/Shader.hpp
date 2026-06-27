@@ -16,6 +16,7 @@ public:
 
     void setUniformMat4(const std::string& name, const float* matrix) const;
     void setUniform3f(const std::string& name, float x, float y, float z) const;
+    void setUniform1f(const std::string& name, float value) const;
 
     unsigned int id() const { return m_id; }
 

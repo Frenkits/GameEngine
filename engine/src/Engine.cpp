@@ -50,11 +50,19 @@ Engine::Engine(int width, int height, const std::string& title, const std::strin
             m_scene.loadFromFile(scenePath);
         } else {
             m_scene.createObject("Cubo");
-            m_scene.createObject("Luce");
+            ObjectId lightId = m_scene.createObject("Luce");
+            if (auto* light = m_scene.getObject(lightId)) {
+                light->isLight = true;
+                light->transform.position = {5.0f, 8.0f, 5.0f};
+            }
         }
     } else {
         m_scene.createObject("Cubo");
-        m_scene.createObject("Luce");
+        ObjectId lightId = m_scene.createObject("Luce");
+        if (auto* light = m_scene.getObject(lightId)) {
+            light->isLight = true;
+            light->transform.position = {5.0f, 8.0f, 5.0f};
+        }
     }
 }
 
@@ -194,6 +202,31 @@ void Engine::renderSceneToFramebuffer() {
     m_renderer->drawGrid(view, proj);
 
     std::unordered_map<ObjectId, Mat4> worldMatrices = computeWorldMatrices();
+
+    // Cerca il primo oggetto "luce" nella scena: la sua posizione/colore/
+    // intensità (impostabili dall'Inspector) guidano l'illuminazione di tutta
+    // la scena per questo frame. Se non c'è nessuna luce, usiamo un default
+    // ragionevole così la scena non resta mai completamente al buio.
+    Vec3 lightPos{10.0f, 20.0f, 10.0f};
+    Vec3 lightColor{1.0f, 1.0f, 1.0f};
+    float lightIntensity = 1.0f;
+    const float ambient = 0.35f;
+
+    for (const auto& [id, obj] : m_scene.getAllObjects()) {
+        if (obj.isLight) {
+            lightPos = obj.transform.position;
+            lightColor = {obj.lightColor[0], obj.lightColor[1], obj.lightColor[2]};
+            lightIntensity = obj.lightIntensity;
+            break; // per ora una sola luce attiva: la prima trovata
+        }
+    }
+
+    m_renderer->setGlobalLight(lightPos.x, lightPos.y, lightPos.z,
+                                lightColor.x, lightColor.y, lightColor.z,
+                                lightIntensity, ambient);
+    Mesh::setGlobalLight(lightPos.x, lightPos.y, lightPos.z,
+                          lightColor.x, lightColor.y, lightColor.z,
+                          lightIntensity, ambient);
 
     for (const auto& [id, obj] : m_scene.getAllObjects()) {
         bool isSelected = (id == m_selectedObject);
@@ -341,7 +374,7 @@ void Engine::tick() {
 
     m_editorUI->beginFrame();
     EditorUI::FrameResult result = m_editorUI->drawPanels(
-        m_scene, m_selectedObject, m_sceneFramebuffer->colorTexture(), m_projectPath);
+        m_scene, m_selectedObject, m_sceneFramebuffer->colorTexture(), m_projectPath, m_isPlaying);
     m_editorUI->endFrame();
 
     m_lastViewportWidth = result.viewportWidth;
@@ -351,6 +384,7 @@ void Engine::tick() {
     if (result.saveRequested) saveScene();
     if (result.openRequested) loadScene();
     if (result.quitRequested) m_window->requestClose();
+    if (result.togglePlayRequested) m_isPlaying = !m_isPlaying;
 
     if (result.clickedInViewport) {
         m_selectedObject = pickObjectAt(result.clickFractionX, result.clickFractionY, renderedWidth, renderedHeight);
@@ -381,6 +415,11 @@ void Engine::tick() {
                 if (auto* child = m_scene.getObject(childId)) {
                     child->meshPath = result.droppedAssetPath;
                     child->groupName = g.name;
+                    // Colore originale letto dal file .mtl (se presente), altrimenti
+                    // resta il grigio di default: modificabile comunque dall'Inspector.
+                    child->baseColor[0] = g.color[0];
+                    child->baseColor[1] = g.color[1];
+                    child->baseColor[2] = g.color[2];
                 }
 
                 // Popoliamo subito la cache: evita di riparsare il file da capo

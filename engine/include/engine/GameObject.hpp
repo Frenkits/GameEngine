@@ -20,6 +20,13 @@ struct GameObject {
     // Combinato con l'illuminazione direzionale fissa nello shader.
     float baseColor[3] = {0.7f, 0.7f, 0.75f};
 
+    // Se true, questo oggetto è una sorgente di luce reale: Engine la userà
+    // per illuminare la scena (al posto/oltre la luce di default), invece
+    // di essere solo un cubo decorativo come prima.
+    bool isLight = false;
+    float lightColor[3] = {1.0f, 1.0f, 1.0f};
+    float lightIntensity = 1.0f;
+
     // Percorso del file .obj importato (vuoto = disegna il cubo segnaposto).
     std::string meshPath;
 

@@ -6,10 +6,49 @@
 #include <algorithm>
 #include <cstdlib>
 #include <cmath>
+#include <filesystem>
+#include <sstream>
+#include <array>
 
 namespace engine {
 
 namespace {
+
+// Legge un file .mtl (materiali OBJ) e ritorna nome materiale -> colore
+// diffuse (riga "Kd r g b"). Usato per colorare i pezzi importati col loro
+// colore originale invece del grigio di default.
+std::unordered_map<std::string, std::array<float, 3>> parseMtlFile(const std::string& mtlPath) {
+    std::unordered_map<std::string, std::array<float, 3>> result;
+    std::ifstream file(mtlPath);
+    if (!file.is_open()) return result;
+
+    std::string currentName;
+    std::string line;
+    while (std::getline(file, line)) {
+        if (line.size() < 2) continue;
+
+        if (line.rfind("newmtl", 0) == 0) {
+            std::string rest = line.substr(6);
+            size_t s = rest.find_first_not_of(' ');
+            currentName = (s == std::string::npos) ? "" : rest.substr(s);
+            while (!currentName.empty() && (currentName.back() == '\r' || currentName.back() == ' ')) {
+                currentName.pop_back();
+            }
+        } else if (line.rfind("Kd", 0) == 0 && (line.size() == 2 || line[2] == ' ')) {
+            const char* p = line.c_str() + 2;
+            char* end;
+            float r = std::strtof(p, &end); p = end;
+            float g = std::strtof(p, &end); p = end;
+            float b = std::strtof(p, &end); p = end;
+            if (!currentName.empty()) {
+                result[currentName] = {r, g, b};
+            }
+        }
+    }
+    return result;
+}
+
+}
 
 // Normale del triangolo (flat shading: stessa normale per i 3 vertici della
 // faccia). Calcolata sempre noi stessi via prodotto vettoriale, indipendentemente
@@ -53,6 +92,7 @@ bool parseObjGrouped(const std::string& path, std::vector<ObjGroup>& outGroups) 
 
     size_t currentGroupIdx = ensureGroup("(senza nome)");
     std::vector<int> faceIndices; // riutilizzato per ogni faccia, evita realloc
+    std::unordered_map<std::string, std::array<float, 3>> materialColors; // nome materiale -> colore Kd
 
     std::string line;
     int vCount = 0, fCount = 0;
@@ -76,6 +116,34 @@ bool parseObjGrouped(const std::string& path, std::vector<ObjGroup>& outGroups) 
             while (!name.empty() && (name.back() == '\r' || name.back() == ' ')) name.pop_back();
             if (!name.empty()) {
                 currentGroupIdx = ensureGroup(name);
+            }
+
+        } else if (line.rfind("mtllib", 0) == 0 && (line.size() == 6 || line[6] == ' ')) {
+            // Riga tipo "mtllib nomefile.mtl" (raramente più file separati da spazio).
+            // Il file .mtl si trova nella stessa cartella del file .obj.
+            std::string rest = line.substr(6);
+            std::stringstream ss(rest); // riga rara, non un hot-path: ok usare stringstream qui
+            std::string mtlFile;
+            std::filesystem::path objDir = std::filesystem::path(path).parent_path();
+            while (ss >> mtlFile) {
+                std::filesystem::path mtlFullPath = objDir / mtlFile;
+                auto parsed = parseMtlFile(mtlFullPath.string());
+                for (auto& [matName, color] : parsed) {
+                    materialColors[matName] = color;
+                }
+            }
+
+        } else if (line.rfind("usemtl", 0) == 0 && (line.size() == 6 || line[6] == ' ')) {
+            std::string matName = line.substr(6);
+            size_t s = matName.find_first_not_of(' ');
+            matName = (s == std::string::npos) ? "" : matName.substr(s);
+            while (!matName.empty() && (matName.back() == '\r' || matName.back() == ' ')) matName.pop_back();
+
+            auto it = materialColors.find(matName);
+            if (it != materialColors.end()) {
+                outGroups[currentGroupIdx].color[0] = it->second[0];
+                outGroups[currentGroupIdx].color[1] = it->second[1];
+                outGroups[currentGroupIdx].color[2] = it->second[2];
             }
 
         } else if (line[0] == 'f' && line[1] == ' ') {
@@ -144,8 +212,6 @@ bool parseObjGrouped(const std::string& path, std::vector<ObjGroup>& outGroups) 
 
     return !outGroups.empty();
 }
-
-} // namespace
 
 bool loadObjFileGrouped(const std::string& path, std::vector<ObjGroup>& outGroups) {
     return parseObjGrouped(path, outGroups);
