@@ -40,6 +40,11 @@ public:
         float clickFractionX = 0.0f; // 0 = sinistra, 1 = destra
         float clickFractionY = 0.0f; // 0 = in alto, 1 = in basso
 
+        // Posizione CORRENTE del mouse sul pannello (aggiornata ogni frame,
+        // non solo al click): serve per il drag continuo del gizmo di trasformazione.
+        float viewportMouseFractionX = 0.5f;
+        float viewportMouseFractionY = 0.5f;
+
         // Id di un oggetto della Hierarchy trascinato e rilasciato sul
         // pannello Scena: viene "staccato" da qualsiasi genitore (come
         // trascinarlo nella zona vuota in fondo alla Hierarchy). kInvalidId

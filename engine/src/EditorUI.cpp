@@ -419,6 +419,13 @@ void EditorUI::drawViewportImageAndInput(FrameResult& result, unsigned int scene
 
     ImVec2 imageScreenPos = ImGui::GetCursorScreenPos(); // angolo in alto a sx dell'immagine, coord. schermo
 
+    // Posizione del mouse SEMPRE (non solo al click): serve al gizmo di
+    // trasformazione per il drag continuo (Engine lo usa per il calcolo,
+    // qui ci limitiamo a riportare il dato).
+    ImVec2 currentMouse = ImGui::GetMousePos();
+    result.viewportMouseFractionX = (currentMouse.x - imageScreenPos.x) / avail.x;
+    result.viewportMouseFractionY = (currentMouse.y - imageScreenPos.y) / avail.y;
+
     // Flip verticale (V invertita) perché la texture OpenGL ha origine in
     // basso a sinistra, mentre ImGui disegna le immagini con origine in alto.
     ImGui::Image((ImTextureID)(intptr_t)sceneTextureId, avail, ImVec2(0, 1), ImVec2(1, 0));

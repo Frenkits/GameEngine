@@ -76,6 +76,36 @@ private:
     void updateCameraInput();
     void renderSceneToFramebuffer();
 
+    // --- Gizmo di traslazione per l'oggetto selezionato (solo Edit) ---
+    // Tre freccette colorate (X=rosso, Y=verde, Z=blu) trascinabili col mouse.
+    // Limite noto: il movimento è lungo gli assi MONDO, applicato direttamente
+    // alla posizione LOCALE dell'oggetto — per oggetti senza genitore (o con
+    // genitore non ruotato) il risultato è esatto; con un genitore ruotato la
+    // direzione potrebbe non essere perfettamente quella attesa.
+    int m_gizmoDragAxis = -1; // -1 = nessun drag in corso, 0=X, 1=Y, 2=Z
+    int m_gizmoHoverAxis = -1; // asse sotto il cursore in questo frame (per evidenziarlo), -1 = nessuno
+    bool m_gizmoLeftMouseWasPressed = false;
+    float m_gizmoDragStartMousePixelX = 0.0f, m_gizmoDragStartMousePixelY = 0.0f;
+    Vec3 m_gizmoDragStartPosition{};
+    float m_gizmoOriginPixelX = 0.0f, m_gizmoOriginPixelY = 0.0f;
+    float m_gizmoTipPixelX[3] = {0.0f, 0.0f, 0.0f};
+    float m_gizmoTipPixelY[3] = {0.0f, 0.0f, 0.0f};
+    bool m_gizmoVisibleThisFrame = false;
+
+    // Calcola le posizioni a schermo delle freccette (per disegnarle e per il
+    // test di "click sopra l'asse"). Va chiamato con la stessa camera/dimensioni
+    // usate per il render, così il gizmo disegnato e quello cliccabile coincidono.
+    void computeGizmoScreenPositions(const Mat4& view, const Mat4& proj, int viewportW, int viewportH);
+
+    // Disegna le 3 freccette nel framebuffer della scena.
+    void renderTransformGizmo(const Mat4& view, const Mat4& proj);
+
+    // Gestisce hit-test/drag del gizmo con i dati di QUESTO frame (mouse,
+    // pulsanti). Ritorna true se il click di questo frame è stato "consumato"
+    // dal gizmo (va quindi saltata la normale selezione tramite color-picking).
+    bool updateTransformGizmoInteraction(float mouseFractionX, float mouseFractionY,
+                                         int viewportW, int viewportH, bool viewportHovered);
+
     // Ritorna le matrici view/projection da usare per questo frame: in Play,
     // se esiste un oggetto Camera nella scena, usa lui; altrimenti (o in Edit)
     // usa la camera orbitale dell'editor.

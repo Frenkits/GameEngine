@@ -7,6 +7,7 @@
 #include <iostream>
 #include <cmath>
 #include <vector>
+#include <algorithm>
 
 namespace fs = std::filesystem;
 
@@ -57,6 +58,33 @@ namespace {
         outForward = transformDirection(rot, Vec3{0.0f, 0.0f, 1.0f}).normalized();
         outRight = transformDirection(rot, Vec3{1.0f, 0.0f, 0.0f}).normalized();
         outUp = transformDirection(rot, Vec3{0.0f, 1.0f, 0.0f}).normalized();
+    }
+
+    // Proietta un punto mondo in coordinate pixel (convenzione "OpenGL": origine
+    // in basso a sinistra, stessa usata da pickObjectAt), usando view*projection.
+    void projectToPixel(const Vec3& worldPos, const Mat4& view, const Mat4& proj,
+                        int viewportW, int viewportH, float& outX, float& outY) {
+        Mat4 vp = proj * view;
+        float x = worldPos.x, y = worldPos.y, z = worldPos.z;
+        float clipX = vp.m[0] * x + vp.m[4] * y + vp.m[8] * z + vp.m[12];
+        float clipY = vp.m[1] * x + vp.m[5] * y + vp.m[9] * z + vp.m[13];
+        float clipW = vp.m[3] * x + vp.m[7] * y + vp.m[11] * z + vp.m[15];
+        if (std::fabs(clipW) < 1e-6f) clipW = 1e-6f;
+        float ndcX = clipX / clipW;
+        float ndcY = clipY / clipW;
+        outX = (ndcX * 0.5f + 0.5f) * static_cast<float>(viewportW);
+        outY = (ndcY * 0.5f + 0.5f) * static_cast<float>(viewportH);
+    }
+
+    // Distanza minima (in pixel) tra il punto (px,py) e il segmento [a,b].
+    float pointSegmentDistance2D(float px, float py, float ax, float ay, float bx, float by) {
+        float dx = bx - ax, dy = by - ay;
+        float lenSq = dx * dx + dy * dy;
+        float t = lenSq > 1e-6f ? ((px - ax) * dx + (py - ay) * dy) / lenSq : 0.0f;
+        t = std::max(0.0f, std::min(1.0f, t));
+        float cx = ax + t * dx, cy = ay + t * dy;
+        float ddx = px - cx, ddy = py - cy;
+        return std::sqrt(ddx * ddx + ddy * ddy);
     }
 }
 
@@ -250,6 +278,173 @@ void Engine::getActiveCameraMatrices(float aspect, Mat4& outView, Mat4& outProj,
     outEyePos = m_camera.getEyePosition();
 }
 
+void Engine::computeGizmoScreenPositions(const Mat4& view, const Mat4& proj, int viewportW, int viewportH) {
+    m_gizmoVisibleThisFrame = false;
+    if (m_selectedObject == kInvalidId) return;
+
+    const GameObject* obj = m_scene.getObject(m_selectedObject);
+    if (!obj) return;
+
+    std::unordered_map<ObjectId, Mat4> worldMatrices = computeWorldMatrices();
+    auto it = worldMatrices.find(m_selectedObject);
+    Mat4 worldMatrix = (it != worldMatrices.end()) ? it->second : obj->transform.getMatrix();
+    Vec3 origin{worldMatrix.m[12], worldMatrix.m[13], worldMatrix.m[14]};
+
+    // Lunghezza del gizmo proporzionale alla distanza dalla camera: resta
+    // leggibile sia da vicino che da lontano (altrimenti a distanza diventa
+    // microscopico o, da vicino, esagerato).
+    Vec3 eyePos = m_camera.getEyePosition();
+    float dist = (origin - eyePos).length();
+    float gizmoLen = std::max(0.5f, dist * 0.15f);
+
+    static const Vec3 kAxisDirs[3] = {
+        Vec3{1.0f, 0.0f, 0.0f},
+        Vec3{0.0f, 1.0f, 0.0f},
+        Vec3{0.0f, 0.0f, 1.0f}
+    };
+
+    projectToPixel(origin, view, proj, viewportW, viewportH, m_gizmoOriginPixelX, m_gizmoOriginPixelY);
+    for (int i = 0; i < 3; ++i) {
+        Vec3 tip = origin + kAxisDirs[i] * gizmoLen;
+        projectToPixel(tip, view, proj, viewportW, viewportH, m_gizmoTipPixelX[i], m_gizmoTipPixelY[i]);
+    }
+
+    m_gizmoVisibleThisFrame = true;
+}
+
+void Engine::renderTransformGizmo(const Mat4& view, const Mat4& proj) {
+    if (m_selectedObject == kInvalidId) return;
+    const GameObject* obj = m_scene.getObject(m_selectedObject);
+    if (!obj) return;
+
+    std::unordered_map<ObjectId, Mat4> worldMatrices = computeWorldMatrices();
+    auto it = worldMatrices.find(m_selectedObject);
+    Mat4 worldMatrix = (it != worldMatrices.end()) ? it->second : obj->transform.getMatrix();
+    Vec3 origin{worldMatrix.m[12], worldMatrix.m[13], worldMatrix.m[14]};
+
+    Vec3 eyePos = m_camera.getEyePosition();
+    float dist = (origin - eyePos).length();
+    float gizmoLen = std::max(0.5f, dist * 0.15f);
+
+    static const Vec3 kAxisDirs[3] = {
+        Vec3{1.0f, 0.0f, 0.0f},
+        Vec3{0.0f, 1.0f, 0.0f},
+        Vec3{0.0f, 0.0f, 1.0f}
+    };
+    // Colore base per asse (X=rosso, Y=verde, Z=blu), più acceso se in hover/drag.
+    static const float kAxisColor[3][3] = {
+        {0.9f, 0.2f, 0.2f},
+        {0.2f, 0.9f, 0.2f},
+        {0.25f, 0.45f, 0.95f}
+    };
+
+    for (int i = 0; i < 3; ++i) {
+        Vec3 tip = origin + kAxisDirs[i] * gizmoLen;
+        std::vector<float> line = {origin.x, origin.y, origin.z, tip.x, tip.y, tip.z};
+
+        bool active = (m_gizmoDragAxis == i) || (m_gizmoDragAxis == -1 && m_gizmoHoverAxis == i);
+        float r = kAxisColor[i][0], g = kAxisColor[i][1], b = kAxisColor[i][2];
+        if (active) {
+            r = r * 0.5f + 0.5f; g = g * 0.5f + 0.5f; b = b * 0.5f + 0.5f; // schiarisce per evidenziare
+        }
+        m_renderer->drawLines(line, view, proj, r, g, b);
+    }
+}
+
+bool Engine::updateTransformGizmoInteraction(float mouseFractionX, float mouseFractionY,
+                                              int viewportW, int viewportH, bool viewportHovered) {
+    if (m_isPlaying) {
+        m_gizmoDragAxis = -1;
+        m_gizmoHoverAxis = -1;
+        return false;
+    }
+
+    bool leftPressed = m_window->isMouseButtonPressed(GLFW_MOUSE_BUTTON_LEFT);
+    bool justPressed = leftPressed && !m_gizmoLeftMouseWasPressed;
+    bool justReleased = !leftPressed && m_gizmoLeftMouseWasPressed;
+    m_gizmoLeftMouseWasPressed = leftPressed;
+
+    if (justReleased) {
+        m_gizmoDragAxis = -1;
+    }
+
+    if (!m_gizmoVisibleThisFrame || m_selectedObject == kInvalidId) {
+        m_gizmoDragAxis = -1;
+        m_gizmoHoverAxis = -1;
+        return false;
+    }
+
+    float mousePixelX = mouseFractionX * static_cast<float>(viewportW);
+    float mousePixelY = (1.0f - mouseFractionY) * static_cast<float>(viewportH); // bottom-up
+
+    constexpr float kHitRadius = 14.0f; // pixel di tolleranza per "centrare" un asse
+
+    // Già in drag: continua a muovere lungo l'asse scelto all'inizio,
+    // indipendentemente dalla distanza attuale dall'asse stesso.
+    if (m_gizmoDragAxis != -1) {
+        if (!leftPressed) {
+            m_gizmoDragAxis = -1;
+            return false;
+        }
+
+        float screenDx = m_gizmoTipPixelX[m_gizmoDragAxis] - m_gizmoOriginPixelX;
+        float screenDy = m_gizmoTipPixelY[m_gizmoDragAxis] - m_gizmoOriginPixelY;
+        float screenLen = std::sqrt(screenDx * screenDx + screenDy * screenDy);
+        if (screenLen < 1e-3f) return true; // asse praticamente invisibile a schermo (vista quasi parallela): ignora
+
+        float axisDirX = screenDx / screenLen, axisDirY = screenDy / screenLen;
+        float mouseDeltaX = mousePixelX - m_gizmoDragStartMousePixelX;
+        float mouseDeltaY = mousePixelY - m_gizmoDragStartMousePixelY;
+        float scalarPixels = mouseDeltaX * axisDirX + mouseDeltaY * axisDirY;
+
+        // "gizmoLen" mondo corrisponde a "screenLen" pixel su quell'asse:
+        // converte lo spostamento in pixel in unità mondo con questo rapporto.
+        GameObject* obj = m_scene.getObject(m_selectedObject);
+        if (obj) {
+            Vec3 eyePos = m_camera.getEyePosition();
+            Vec3 origin{m_gizmoDragStartPosition.x, m_gizmoDragStartPosition.y, m_gizmoDragStartPosition.z};
+            float dist = (origin - eyePos).length();
+            float gizmoLen = std::max(0.5f, dist * 0.15f);
+
+            static const Vec3 kAxisDirs[3] = {
+                Vec3{1.0f, 0.0f, 0.0f}, Vec3{0.0f, 1.0f, 0.0f}, Vec3{0.0f, 0.0f, 1.0f}
+            };
+            float worldDelta = scalarPixels * (gizmoLen / screenLen);
+            Vec3 newPos = m_gizmoDragStartPosition + kAxisDirs[m_gizmoDragAxis] * worldDelta;
+            obj->transform.position = newPos;
+        }
+        return true; // questo click/drag è "del gizmo": non toccare la selezione
+    }
+
+    // Non in drag: aggiorna solo l'hover (per evidenziare l'asse più vicino al cursore)
+    m_gizmoHoverAxis = -1;
+    if (viewportHovered) {
+        float bestDist = kHitRadius;
+        for (int i = 0; i < 3; ++i) {
+            float d = pointSegmentDistance2D(mousePixelX, mousePixelY,
+                                              m_gizmoOriginPixelX, m_gizmoOriginPixelY,
+                                              m_gizmoTipPixelX[i], m_gizmoTipPixelY[i]);
+            if (d < bestDist) {
+                bestDist = d;
+                m_gizmoHoverAxis = i;
+            }
+        }
+    }
+
+    if (justPressed && m_gizmoHoverAxis != -1) {
+        GameObject* obj = m_scene.getObject(m_selectedObject);
+        if (obj) {
+            m_gizmoDragAxis = m_gizmoHoverAxis;
+            m_gizmoDragStartMousePixelX = mousePixelX;
+            m_gizmoDragStartMousePixelY = mousePixelY;
+            m_gizmoDragStartPosition = obj->transform.position;
+            return true; // consuma il click: non far partire la normale selezione
+        }
+    }
+
+    return false;
+}
+
 Vec3 Engine::computeDropWorldPosition(float fractionX, float fractionY, float aspect) {
     // Ricostruiamo il raggio dalla camera attraverso il punto di rilascio
     // usando direttamente i vettori della camera orbitale (niente bisogno di
@@ -392,6 +587,13 @@ void Engine::renderSceneToFramebuffer() {
             float gb = isSelected ? 0.1f : 0.2f;
             m_renderer->drawLines(lines, view, proj, gr, gg, gb);
         }
+    }
+
+    // Gizmo di traslazione per l'oggetto selezionato: solo in Edit (in Play
+    // non avrebbe senso, e comunque la Hierarchy/Inspector non sono visibili).
+    if (!m_isPlaying) {
+        computeGizmoScreenPositions(view, proj, static_cast<int>(m_lastViewportWidth), static_cast<int>(m_lastViewportHeight));
+        renderTransformGizmo(view, proj);
     }
 
     Framebuffer::unbind();
@@ -541,7 +743,15 @@ void Engine::tick() {
         }
     }
 
-    if (result.clickedInViewport) {
+    // Il gizmo va interrogato SEMPRE (non solo al click) per gestire bene il
+    // drag continuo: ritorna true se questo frame "appartiene" al gizmo
+    // (hover, inizio drag, o drag in corso), nel qual caso non si deve
+    // toccare la selezione con il normale color-picking.
+    bool gizmoConsumedInput = updateTransformGizmoInteraction(
+        result.viewportMouseFractionX, result.viewportMouseFractionY,
+        renderedWidth, renderedHeight, result.viewportHovered);
+
+    if (result.clickedInViewport && !gizmoConsumedInput) {
         m_selectedObject = pickObjectAt(result.clickFractionX, result.clickFractionY, renderedWidth, renderedHeight);
 
         if (const GameObject* picked = m_scene.getObject(m_selectedObject)) {
