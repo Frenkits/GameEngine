@@ -37,17 +37,52 @@ layout (location = 0) in vec3 aPos;
 uniform mat4 uView;
 uniform mat4 uProjection;
 
+out vec3 vWorldPos;
+
 void main() {
+    // Il quad è già definito direttamente in coordinate mondo (vedi setupGrid):
+    // niente matrice modello, la posizione del vertice È la posizione mondo.
+    vWorldPos = aPos;
     gl_Position = uProjection * uView * vec4(aPos, 1.0);
 }
 )";
 
 static const char* kGridFragmentSrc = R"(
 #version 330 core
+in vec3 vWorldPos;
+uniform vec3 uCameraPos;
 out vec4 FragColor;
 
+// Griglia procedurale "infinita" (tecnica classica: calcola le linee nello
+// shader invece di generare migliaia di segmenti via CPU). Antialiasing via
+// derivate (fwidth), così le linee restano nitide a qualsiasi distanza/zoom.
+float gridLineFactor(vec2 coord, float cellSize) {
+    vec2 g = coord / cellSize;
+    vec2 d = fwidth(g);
+    vec2 lineDist = abs(fract(g - 0.5) - 0.5) / d;
+    float line = min(lineDist.x, lineDist.y);
+    return 1.0 - min(line, 1.0);
+}
+
 void main() {
-    FragColor = vec4(0.45, 0.45, 0.45, 1.0);
+    vec2 coord = vWorldPos.xz;
+
+    float minor = gridLineFactor(coord, 1.0);   // una linea ogni unità
+    float major = gridLineFactor(coord, 10.0);  // una linea più marcata ogni 10 unità
+
+    float dist = length(vWorldPos - uCameraPos);
+    float fade = clamp(1.0 - dist / 150.0, 0.0, 1.0); // dissolvenza, non finisce di colpo
+
+    vec3 minorColor = vec3(0.32);
+    vec3 majorColor = vec3(0.6);
+
+    float intensity = max(minor * 0.5, major);
+    vec3 color = mix(minorColor, majorColor, step(0.5, major));
+
+    float alpha = intensity * fade;
+    if (alpha < 0.01) discard; // niente da disegnare: lascia vedere lo sfondo
+
+    FragColor = vec4(color, alpha);
 }
 )";
 
@@ -144,7 +179,7 @@ void main() {
 
 Renderer::Renderer() {
     setupDebugTriangle();
-    setupGrid(20, 1.0f);
+    setupGrid();
     setupCube();
     setupLines();
     m_cubeUnlitShader = std::make_unique<Shader>(kCubeUnlitVertexSrc, kCubeUnlitFragmentSrc);
@@ -206,38 +241,50 @@ void Renderer::drawDebugTriangle() {
     glBindVertexArray(0);
 }
 
-void Renderer::setupGrid(int halfLines, float spacing) {
+void Renderer::setupGrid() {
     m_gridShader = std::make_unique<Shader>(kGridVertexSrc, kGridFragmentSrc);
 
-    std::vector<float> verts;
-    float extent = halfLines * spacing;
-    for (int i = -halfLines; i <= halfLines; ++i) {
-        float pos = i * spacing;
-        // linea parallela all'asse X (varia Z)
-        verts.insert(verts.end(), {-extent, 0.0f, pos,  extent, 0.0f, pos});
-        // linea parallela all'asse Z (varia X)
-        verts.insert(verts.end(), {pos, 0.0f, -extent,  pos, 0.0f, extent});
-    }
-    m_gridLineCount = static_cast<int>(verts.size() / 3); // numero di vertici totali
+    // Un quad enorme sul piano Y=0: niente più migliaia di segmenti via CPU,
+    // le linee della griglia sono calcolate dal fragment shader (vedi sopra).
+    constexpr float kExtent = 1000.0f;
+    const float verts[] = {
+        -kExtent, 0.0f, -kExtent,
+         kExtent, 0.0f, -kExtent,
+         kExtent, 0.0f,  kExtent,
+
+         kExtent, 0.0f,  kExtent,
+        -kExtent, 0.0f,  kExtent,
+        -kExtent, 0.0f, -kExtent,
+    };
+    m_gridVertexCount = 6;
 
     glGenVertexArrays(1, &m_gridVao);
     glGenBuffers(1, &m_gridVbo);
     glBindVertexArray(m_gridVao);
     glBindBuffer(GL_ARRAY_BUFFER, m_gridVbo);
-    glBufferData(GL_ARRAY_BUFFER, verts.size() * sizeof(float), verts.data(), GL_STATIC_DRAW);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(verts), verts, GL_STATIC_DRAW);
     glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
     glEnableVertexAttribArray(0);
     glBindVertexArray(0);
 }
 
-void Renderer::drawGrid(const Mat4& view, const Mat4& projection, int /*halfLines*/, float /*spacing*/) {
+void Renderer::drawGrid(const Mat4& view, const Mat4& projection, const Vec3& cameraPos) {
+    // Il quad è semi-trasparente (alpha calcolato nello shader per le linee,
+    // 0 altrove con discard): serve il blending per fonderlo correttamente
+    // con quello che c'è dietro/davanti, invece di un riquadro opaco.
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
     m_gridShader->bind();
     m_gridShader->setUniformMat4("uView", view.data());
     m_gridShader->setUniformMat4("uProjection", projection.data());
+    m_gridShader->setUniform3f("uCameraPos", cameraPos.x, cameraPos.y, cameraPos.z);
 
     glBindVertexArray(m_gridVao);
-    glDrawArrays(GL_LINES, 0, m_gridLineCount);
+    glDrawArrays(GL_TRIANGLES, 0, m_gridVertexCount);
     glBindVertexArray(0);
+
+    glDisable(GL_BLEND);
 }
 
 void Renderer::setupCube() {

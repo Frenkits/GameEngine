@@ -218,7 +218,7 @@ std::unordered_map<ObjectId, Mat4> Engine::computeWorldMatrices() {
     return result;
 }
 
-void Engine::getActiveCameraMatrices(float aspect, Mat4& outView, Mat4& outProj) {
+void Engine::getActiveCameraMatrices(float aspect, Mat4& outView, Mat4& outProj, Vec3& outEyePos) {
     if (m_isPlaying) {
         for (const auto& [id, obj] : m_scene.getAllObjects()) {
             if (obj.isCamera) {
@@ -230,6 +230,7 @@ void Engine::getActiveCameraMatrices(float aspect, Mat4& outView, Mat4& outProj)
 
                 outView = Mat4::lookAt(eye, target, up);
                 outProj = Mat4::perspective(radians(obj.cameraFov), aspect, 0.05f, 500.0f);
+                outEyePos = eye;
                 return; // usiamo la prima camera trovata
             }
         }
@@ -238,6 +239,7 @@ void Engine::getActiveCameraMatrices(float aspect, Mat4& outView, Mat4& outProj)
     // Nessuna camera di gioco trovata (o siamo in Edit): usa quella orbitale.
     outView = m_camera.getViewMatrix();
     outProj = m_camera.getProjectionMatrix(aspect);
+    outEyePos = m_camera.getEyePosition();
 }
 
 Vec3 Engine::computeDropWorldPosition(float fractionX, float fractionY, float aspect) {
@@ -279,9 +281,10 @@ void Engine::renderSceneToFramebuffer() {
 
     float aspect = m_lastViewportHeight > 0.0f ? (m_lastViewportWidth / m_lastViewportHeight) : 1.0f;
     Mat4 view, proj;
-    getActiveCameraMatrices(aspect, view, proj);
+    Vec3 eyePos;
+    getActiveCameraMatrices(aspect, view, proj, eyePos);
 
-    m_renderer->drawGrid(view, proj);
+    m_renderer->drawGrid(view, proj, eyePos);
 
     std::unordered_map<ObjectId, Mat4> worldMatrices = computeWorldMatrices();
 
@@ -408,7 +411,8 @@ ObjectId Engine::pickObjectAt(float fractionX, float fractionY, int viewportWidt
 
     float aspect = h > 0 ? static_cast<float>(w) / static_cast<float>(h) : 1.0f;
     Mat4 view, proj;
-    getActiveCameraMatrices(aspect, view, proj);
+    Vec3 eyePosUnused;
+    getActiveCameraMatrices(aspect, view, proj, eyePosUnused);
 
     std::unordered_map<ObjectId, Mat4> worldMatrices = computeWorldMatrices();
 

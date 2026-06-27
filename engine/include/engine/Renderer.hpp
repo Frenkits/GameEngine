@@ -23,7 +23,10 @@ public:
     void setOffset(float x, float y) { m_offsetX = x; m_offsetY = y; }
 
     // Griglia di riferimento sul piano XZ, tipica degli editor 3D
-    void drawGrid(const Mat4& view, const Mat4& projection, int halfLines = 20, float spacing = 1.0f);
+    // Griglia infinita stile Unreal/Unity: generata via shader (niente più
+    // linee fisse che finiscono bruscamente), con linee principali ogni 10
+    // unità e una dissolvenza in base alla distanza dalla camera.
+    void drawGrid(const Mat4& view, const Mat4& projection, const Vec3& cameraPos);
 
     // Cubo unitario (1x1x1) trasformato da 'model': usato per rappresentare
     // ogni GameObject nella scena finché non hai mesh vere e proprie
@@ -60,8 +63,8 @@ private:
     unsigned int m_gridVao = 0;
     unsigned int m_gridVbo = 0;
     std::unique_ptr<Shader> m_gridShader;
-    int m_gridLineCount = 0;
-    void setupGrid(int halfLines, float spacing);
+    int m_gridVertexCount = 0;
+    void setupGrid();
 
     // Cubo
     unsigned int m_cubeVao = 0;

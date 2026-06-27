@@ -76,7 +76,7 @@ private:
     // Ritorna le matrici view/projection da usare per questo frame: in Play,
     // se esiste un oggetto Camera nella scena, usa lui; altrimenti (o in Edit)
     // usa la camera orbitale dell'editor.
-    void getActiveCameraMatrices(float aspect, Mat4& outView, Mat4& outProj);
+    void getActiveCameraMatrices(float aspect, Mat4& outView, Mat4& outProj, Vec3& outEyePos);
 
     // Calcola dove piazzare un oggetto appena trascinato dagli Assets:
     // lancia un raggio dalla camera attraverso il punto esatto del rilascio
