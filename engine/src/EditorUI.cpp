@@ -223,6 +223,15 @@ void EditorUI::drawHierarchyWindow(Scene& scene, ObjectId& selectedId) {
         }
         selectedId = id;
     }
+    ImGui::SameLine();
+    if (ImGui::Button("+ Camera")) {
+        ObjectId id = scene.createObject("Camera");
+        if (auto* obj = scene.getObject(id)) {
+            obj->isCamera = true;
+            obj->transform.position = {0.0f, 2.0f, 8.0f};
+        }
+        selectedId = id;
+    }
 
     if (ImGui::Button("Duplica (Ctrl+D)") && selectedId != kInvalidId) {
         selectedId = scene.duplicateObject(selectedId);
@@ -281,6 +290,15 @@ void EditorUI::drawInspectorWindow(Scene& scene, ObjectId selectedId) {
         ImGui::ColorEdit3("Colore luce", obj->lightColor);
         ImGui::DragFloat("Intensita'", &obj->lightIntensity, 0.05f, 0.0f, 10.0f);
         ImGui::TextWrapped("La posizione di questo oggetto (Transform sopra) determina da dove arriva la luce.");
+    }
+
+    ImGui::Separator();
+    ImGui::Checkbox("E' una camera di gioco", &obj->isCamera);
+    if (obj->isCamera) {
+        ImGui::DragFloat("FOV (campo visivo)", &obj->cameraFov, 0.5f, 10.0f, 120.0f);
+        ImGui::TextWrapped("In modalita' Play, la prima camera trovata nella scena sostituisce "
+                           "la camera orbitale dell'editor. Posizione/Rotazione (Transform sopra) "
+                           "= dove si trova e dove guarda.");
     }
 
     ImGui::Separator();

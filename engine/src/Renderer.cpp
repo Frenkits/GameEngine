@@ -118,10 +118,35 @@ void main() {
 }
 )";
 
+// Shader per le linee dei gizmo (es. cono di visione delle camere): colore
+// piatto modificabile, nessuna illuminazione.
+static const char* kLineVertexSrc = R"(
+#version 330 core
+layout (location = 0) in vec3 aPos;
+
+uniform mat4 uView;
+uniform mat4 uProjection;
+
+void main() {
+    gl_Position = uProjection * uView * vec4(aPos, 1.0);
+}
+)";
+
+static const char* kLineFragmentSrc = R"(
+#version 330 core
+uniform vec3 uColor;
+out vec4 FragColor;
+
+void main() {
+    FragColor = vec4(uColor, 1.0);
+}
+)";
+
 Renderer::Renderer() {
     setupDebugTriangle();
     setupGrid(20, 1.0f);
     setupCube();
+    setupLines();
     m_cubeUnlitShader = std::make_unique<Shader>(kCubeUnlitVertexSrc, kCubeUnlitFragmentSrc);
 }
 
@@ -132,6 +157,8 @@ Renderer::~Renderer() {
     if (m_gridVao) glDeleteVertexArrays(1, &m_gridVao);
     if (m_cubeVbo) glDeleteBuffers(1, &m_cubeVbo);
     if (m_cubeVao) glDeleteVertexArrays(1, &m_cubeVao);
+    if (m_lineVbo) glDeleteBuffers(1, &m_lineVbo);
+    if (m_lineVao) glDeleteVertexArrays(1, &m_lineVao);
 }
 
 void Renderer::clear(float r, float g, float b, float a) const {
@@ -286,6 +313,36 @@ void Renderer::setGlobalLight(float lightX, float lightY, float lightZ,
     m_cubeShader->setUniform3f("uLightColor", colorR, colorG, colorB);
     m_cubeShader->setUniform1f("uLightIntensity", intensity);
     m_cubeShader->setUniform1f("uAmbient", ambient);
+}
+
+void Renderer::setupLines() {
+    m_lineShader = std::make_unique<Shader>(kLineVertexSrc, kLineFragmentSrc);
+
+    glGenVertexArrays(1, &m_lineVao);
+    glGenBuffers(1, &m_lineVbo);
+
+    glBindVertexArray(m_lineVao);
+    glBindBuffer(GL_ARRAY_BUFFER, m_lineVbo);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
+    glEnableVertexAttribArray(0);
+    glBindVertexArray(0);
+}
+
+void Renderer::drawLines(const std::vector<float>& positions, const Mat4& view, const Mat4& projection,
+                         float r, float g, float b) {
+    if (positions.empty()) return;
+
+    glBindBuffer(GL_ARRAY_BUFFER, m_lineVbo);
+    glBufferData(GL_ARRAY_BUFFER, positions.size() * sizeof(float), positions.data(), GL_DYNAMIC_DRAW);
+
+    m_lineShader->bind();
+    m_lineShader->setUniformMat4("uView", view.data());
+    m_lineShader->setUniformMat4("uProjection", projection.data());
+    m_lineShader->setUniform3f("uColor", r, g, b);
+
+    glBindVertexArray(m_lineVao);
+    glDrawArrays(GL_LINES, 0, static_cast<int>(positions.size() / 3));
+    glBindVertexArray(0);
 }
 
 } // namespace engine

@@ -27,6 +27,13 @@ struct GameObject {
     float lightColor[3] = {1.0f, 1.0f, 1.0f};
     float lightIntensity = 1.0f;
 
+    // Se true, questo oggetto è una camera di gioco: in modalità Play,
+    // Engine userà la sua posizione/rotazione (Transform sopra) invece della
+    // camera orbitale dell'editor. Rotazione: X = pitch (su/giù), Y = yaw
+    // (sinistra/destra), stessa convenzione della camera orbitale.
+    bool isCamera = false;
+    float cameraFov = 60.0f;
+
     // Percorso del file .obj importato (vuoto = disegna il cubo segnaposto).
     std::string meshPath;
 

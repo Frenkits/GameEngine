@@ -73,6 +73,11 @@ private:
     void updateCameraInput();
     void renderSceneToFramebuffer();
 
+    // Ritorna le matrici view/projection da usare per questo frame: in Play,
+    // se esiste un oggetto Camera nella scena, usa lui; altrimenti (o in Edit)
+    // usa la camera orbitale dell'editor.
+    void getActiveCameraMatrices(float aspect, Mat4& outView, Mat4& outProj);
+
     // Composizione gerarchica delle trasformazioni: la matrice "mondo" di un
     // figlio è (matrice mondo del genitore) * (sua matrice locale). Così
     // muovere/ruotare/scalare un oggetto contenitore (es. la cartella radice

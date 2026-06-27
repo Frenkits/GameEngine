@@ -1,6 +1,7 @@
 #pragma once
 #include "engine/Math.hpp"
 #include <memory>
+#include <vector>
 
 namespace engine {
 
@@ -41,6 +42,13 @@ public:
                         float colorR, float colorG, float colorB,
                         float intensity, float ambient);
 
+    // Disegna una lista di linee generiche (coppie di punti consecutive),
+    // colore piatto, nessuna illuminazione: usato per i gizmo dell'editor
+    // (es. il "cono di visione" delle camere). Ricostruisce il buffer ad ogni
+    // chiamata: va bene per pochi gizmo occasionali, non per geometria pesante.
+    void drawLines(const std::vector<float>& positions, const Mat4& view, const Mat4& projection,
+                   float r, float g, float b);
+
 private:
     unsigned int m_vao = 0;
     unsigned int m_vbo = 0;
@@ -61,6 +69,12 @@ private:
     std::unique_ptr<Shader> m_cubeShader;
     std::unique_ptr<Shader> m_cubeUnlitShader;
     void setupCube();
+
+    // Linee per gizmo (es. cono di visione delle camere)
+    unsigned int m_lineVao = 0;
+    unsigned int m_lineVbo = 0;
+    std::unique_ptr<Shader> m_lineShader;
+    void setupLines();
 
     void setupDebugTriangle();
 };

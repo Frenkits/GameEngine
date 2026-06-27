@@ -5,6 +5,8 @@
 #include <filesystem>
 #include <sstream>
 #include <iostream>
+#include <cmath>
+#include <vector>
 
 namespace fs = std::filesystem;
 
@@ -28,6 +30,33 @@ namespace {
                         | (static_cast<unsigned int>(b) << 16);
         if (v == 0) return kInvalidId; // sfondo: nessun oggetto sotto al cursore
         return static_cast<ObjectId>(v - 1);
+    }
+
+    // Trasforma una DIREZIONE (non un punto: ignora la traslazione) tramite
+    // la parte di rotazione/scala 3x3 della matrice. Usata per calcolare dove
+    // "guarda" una camera usando ESATTAMENTE la stessa rotazione completa
+    // (X, Y, Z) applicata al corpo visivo dell'oggetto (Transform::getMatrix()),
+    // invece di una formula semplificata solo yaw/pitch che potrebbe non
+    // coincidere su tutti gli assi (in particolare il roll, asse Z).
+    Vec3 transformDirection(const Mat4& m, const Vec3& v) {
+        return Vec3{
+            m.m[0] * v.x + m.m[4] * v.y + m.m[8] * v.z,
+            m.m[1] * v.x + m.m[5] * v.y + m.m[9] * v.z,
+            m.m[2] * v.x + m.m[6] * v.y + m.m[10] * v.z
+        };
+    }
+
+    // Calcola forward/right/up "di sguardo" di un oggetto usando la sua
+    // rotazione COMPLETA (stessa composizione Rz*Ry*Rx di Transform::getMatrix()).
+    void computeLookVectors(const Transform& transform, Vec3& outForward, Vec3& outRight, Vec3& outUp) {
+        Mat4 rx = Mat4::rotateX(radians(transform.rotationDegrees.x));
+        Mat4 ry = Mat4::rotateY(radians(transform.rotationDegrees.y));
+        Mat4 rz = Mat4::rotateZ(radians(transform.rotationDegrees.z));
+        Mat4 rot = rz * ry * rx;
+
+        outForward = transformDirection(rot, Vec3{0.0f, 0.0f, 1.0f}).normalized();
+        outRight = transformDirection(rot, Vec3{1.0f, 0.0f, 0.0f}).normalized();
+        outUp = transformDirection(rot, Vec3{0.0f, 1.0f, 0.0f}).normalized();
     }
 }
 
@@ -189,6 +218,28 @@ std::unordered_map<ObjectId, Mat4> Engine::computeWorldMatrices() {
     return result;
 }
 
+void Engine::getActiveCameraMatrices(float aspect, Mat4& outView, Mat4& outProj) {
+    if (m_isPlaying) {
+        for (const auto& [id, obj] : m_scene.getAllObjects()) {
+            if (obj.isCamera) {
+                Vec3 eye = obj.transform.position;
+
+                Vec3 forward, right, up;
+                computeLookVectors(obj.transform, forward, right, up);
+                Vec3 target = eye + forward;
+
+                outView = Mat4::lookAt(eye, target, up);
+                outProj = Mat4::perspective(radians(obj.cameraFov), aspect, 0.05f, 500.0f);
+                return; // usiamo la prima camera trovata
+            }
+        }
+    }
+
+    // Nessuna camera di gioco trovata (o siamo in Edit): usa quella orbitale.
+    outView = m_camera.getViewMatrix();
+    outProj = m_camera.getProjectionMatrix(aspect);
+}
+
 void Engine::renderSceneToFramebuffer() {
     m_sceneFramebuffer->resize(static_cast<int>(m_lastViewportWidth), static_cast<int>(m_lastViewportHeight));
     m_sceneFramebuffer->bind();
@@ -196,8 +247,8 @@ void Engine::renderSceneToFramebuffer() {
     m_renderer->clear(m_clearColor[0], m_clearColor[1], m_clearColor[2], m_clearColor[3]);
 
     float aspect = m_lastViewportHeight > 0.0f ? (m_lastViewportWidth / m_lastViewportHeight) : 1.0f;
-    Mat4 view = m_camera.getViewMatrix();
-    Mat4 proj = m_camera.getProjectionMatrix(aspect);
+    Mat4 view, proj;
+    getActiveCameraMatrices(aspect, view, proj);
 
     m_renderer->drawGrid(view, proj);
 
@@ -229,6 +280,11 @@ void Engine::renderSceneToFramebuffer() {
                           lightIntensity, ambient);
 
     for (const auto& [id, obj] : m_scene.getAllObjects()) {
+        // In modalità Play la camera attiva non disegna il proprio corpo
+        // (altrimenti ci si ritrova "dentro" la sua geometria). In Edit resta
+        // visibile e selezionabile come qualsiasi altro oggetto.
+        if (obj.isCamera && m_isPlaying) continue;
+
         bool isSelected = (id == m_selectedObject);
 
         // Colore materiale dell'oggetto, con un tint verso l'arancio quando
@@ -251,6 +307,44 @@ void Engine::renderSceneToFramebuffer() {
             // contenitori creati dall'import multi-oggetto (la cartella radice
             // che raggruppa i pezzi importati) restano invisibili, è giusto così.
             m_renderer->drawCube(worldMatrix, view, proj, r, g, b);
+        }
+
+        // Gizmo "cono di visione": mostra quale porzione di scena la camera
+        // inquadra, in base a FOV/direzione. Solo in Edit (in Play la camera
+        // attiva è il punto di vista stesso, non avrebbe senso disegnarlo).
+        if (obj.isCamera && !m_isPlaying) {
+            Vec3 eye = obj.transform.position;
+            Vec3 forward, right, camUp;
+            computeLookVectors(obj.transform, forward, right, camUp);
+
+            float gizmoDist = 3.0f; // lunghezza fissa del gizmo (non è il far plane reale)
+            float gizmoAspect = (m_lastViewportHeight > 0.0f) ? (m_lastViewportWidth / m_lastViewportHeight) : (16.0f / 9.0f);
+            float halfH = std::tan(radians(obj.cameraFov * 0.5f)) * gizmoDist;
+            float halfW = halfH * gizmoAspect;
+
+            Vec3 c1 = eye + forward * gizmoDist + camUp * halfH + right * halfW;
+            Vec3 c2 = eye + forward * gizmoDist + camUp * halfH - right * halfW;
+            Vec3 c3 = eye + forward * gizmoDist - camUp * halfH - right * halfW;
+            Vec3 c4 = eye + forward * gizmoDist - camUp * halfH + right * halfW;
+
+            std::vector<float> lines;
+            auto addLine = [&](const Vec3& a, const Vec3& b2) {
+                lines.push_back(a.x); lines.push_back(a.y); lines.push_back(a.z);
+                lines.push_back(b2.x); lines.push_back(b2.y); lines.push_back(b2.z);
+            };
+            addLine(eye, c1);
+            addLine(eye, c2);
+            addLine(eye, c3);
+            addLine(eye, c4);
+            addLine(c1, c2);
+            addLine(c2, c3);
+            addLine(c3, c4);
+            addLine(c4, c1);
+
+            float gr = isSelected ? 1.0f : 0.95f;
+            float gg = isSelected ? 0.85f : 0.85f;
+            float gb = isSelected ? 0.1f : 0.2f;
+            m_renderer->drawLines(lines, view, proj, gr, gg, gb);
         }
     }
 
@@ -282,12 +376,14 @@ ObjectId Engine::pickObjectAt(float fractionX, float fractionY, int viewportWidt
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
     float aspect = h > 0 ? static_cast<float>(w) / static_cast<float>(h) : 1.0f;
-    Mat4 view = m_camera.getViewMatrix();
-    Mat4 proj = m_camera.getProjectionMatrix(aspect);
+    Mat4 view, proj;
+    getActiveCameraMatrices(aspect, view, proj);
 
     std::unordered_map<ObjectId, Mat4> worldMatrices = computeWorldMatrices();
 
     for (const auto& [id, obj] : m_scene.getAllObjects()) {
+        if (obj.isCamera && m_isPlaying) continue; // stesso motivo del rendering visibile
+
         float r, g, b;
         idToColor(id, r, g, b);
 
