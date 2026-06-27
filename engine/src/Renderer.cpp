@@ -85,10 +85,37 @@ void main() {
 }
 )";
 
+// Shader "flat" senza illuminazione, usato SOLO per il color-picking (vedi
+// commento su Mesh::drawUnlit: qui il colore è un id codificato che non deve
+// essere alterato in alcun modo).
+static const char* kCubeUnlitVertexSrc = R"(
+#version 330 core
+layout (location = 0) in vec3 aPos;
+
+uniform mat4 uModel;
+uniform mat4 uView;
+uniform mat4 uProjection;
+
+void main() {
+    gl_Position = uProjection * uView * uModel * vec4(aPos, 1.0);
+}
+)";
+
+static const char* kCubeUnlitFragmentSrc = R"(
+#version 330 core
+uniform vec3 uColor;
+out vec4 FragColor;
+
+void main() {
+    FragColor = vec4(uColor, 1.0);
+}
+)";
+
 Renderer::Renderer() {
     setupDebugTriangle();
     setupGrid(20, 1.0f);
     setupCube();
+    m_cubeUnlitShader = std::make_unique<Shader>(kCubeUnlitVertexSrc, kCubeUnlitFragmentSrc);
 }
 
 Renderer::~Renderer() {
@@ -225,6 +252,19 @@ void Renderer::drawCube(const Mat4& model, const Mat4& view, const Mat4& project
     m_cubeShader->setUniformMat4("uView", view.data());
     m_cubeShader->setUniformMat4("uProjection", projection.data());
     m_cubeShader->setUniform3f("uColor", r, g, b);
+
+    glBindVertexArray(m_cubeVao);
+    glDrawArrays(GL_TRIANGLES, 0, 36);
+    glBindVertexArray(0);
+}
+
+void Renderer::drawCubeUnlit(const Mat4& model, const Mat4& view, const Mat4& projection,
+                              float r, float g, float b) {
+    m_cubeUnlitShader->bind();
+    m_cubeUnlitShader->setUniformMat4("uModel", model.data());
+    m_cubeUnlitShader->setUniformMat4("uView", view.data());
+    m_cubeUnlitShader->setUniformMat4("uProjection", projection.data());
+    m_cubeUnlitShader->setUniform3f("uColor", r, g, b);
 
     glBindVertexArray(m_cubeVao);
     glDrawArrays(GL_TRIANGLES, 0, 36);

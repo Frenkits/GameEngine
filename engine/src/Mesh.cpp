@@ -49,6 +49,37 @@ void main() {
         static std::unique_ptr<Shader> shader = std::make_unique<Shader>(kMeshVertexSrc, kMeshFragmentSrc);
         return *shader;
     }
+
+    // Shader "flat": nessuna illuminazione, il colore passato esce identico.
+    // Usato SOLO per il color-picking, dove il colore è in realtà un id
+    // codificato che non deve essere alterato in alcun modo.
+    const char* kUnlitVertexSrc = R"(
+#version 330 core
+layout (location = 0) in vec3 aPos;
+
+uniform mat4 uModel;
+uniform mat4 uView;
+uniform mat4 uProjection;
+
+void main() {
+    gl_Position = uProjection * uView * uModel * vec4(aPos, 1.0);
+}
+)";
+
+    const char* kUnlitFragmentSrc = R"(
+#version 330 core
+uniform vec3 uColor;
+out vec4 FragColor;
+
+void main() {
+    FragColor = vec4(uColor, 1.0);
+}
+)";
+
+    Shader& meshUnlitShader() {
+        static std::unique_ptr<Shader> shader = std::make_unique<Shader>(kUnlitVertexSrc, kUnlitFragmentSrc);
+        return *shader;
+    }
 }
 
 Mesh::Mesh(const std::vector<float>& vertices) {
@@ -83,6 +114,22 @@ void Mesh::draw(const Mat4& model, const Mat4& view, const Mat4& projection,
     if (!isValid()) return;
 
     Shader& shader = meshShader();
+    shader.bind();
+    shader.setUniformMat4("uModel", model.data());
+    shader.setUniformMat4("uView", view.data());
+    shader.setUniformMat4("uProjection", projection.data());
+    shader.setUniform3f("uColor", r, g, b);
+
+    glBindVertexArray(m_vao);
+    glDrawArrays(GL_TRIANGLES, 0, m_vertexCount);
+    glBindVertexArray(0);
+}
+
+void Mesh::drawUnlit(const Mat4& model, const Mat4& view, const Mat4& projection,
+                     float r, float g, float b) const {
+    if (!isValid()) return;
+
+    Shader& shader = meshUnlitShader();
     shader.bind();
     shader.setUniformMat4("uModel", model.data());
     shader.setUniformMat4("uView", view.data());

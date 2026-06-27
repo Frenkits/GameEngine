@@ -29,6 +29,11 @@ public:
     void drawCube(const Mat4& model, const Mat4& view, const Mat4& projection,
                   float r, float g, float b);
 
+    // Versione SENZA illuminazione per il color-picking (vedi commento su
+    // Mesh::drawUnlit per il perché serve uno shader separato).
+    void drawCubeUnlit(const Mat4& model, const Mat4& view, const Mat4& projection,
+                       float r, float g, float b);
+
 private:
     unsigned int m_vao = 0;
     unsigned int m_vbo = 0;
@@ -47,6 +52,7 @@ private:
     unsigned int m_cubeVao = 0;
     unsigned int m_cubeVbo = 0;
     std::unique_ptr<Shader> m_cubeShader;
+    std::unique_ptr<Shader> m_cubeUnlitShader;
     void setupCube();
 
     void setupDebugTriangle();

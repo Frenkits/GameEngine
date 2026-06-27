@@ -263,9 +263,9 @@ ObjectId Engine::pickObjectAt(float fractionX, float fractionY, int viewportWidt
 
         std::shared_ptr<Mesh> mesh = getMeshForObject(obj);
         if (mesh && mesh->isValid()) {
-            mesh->draw(worldMatrix, view, proj, r, g, b);
+            mesh->drawUnlit(worldMatrix, view, proj, r, g, b);
         } else if (obj.children.empty()) {
-            m_renderer->drawCube(worldMatrix, view, proj, r, g, b);
+            m_renderer->drawCubeUnlit(worldMatrix, view, proj, r, g, b);
         }
     }
 
