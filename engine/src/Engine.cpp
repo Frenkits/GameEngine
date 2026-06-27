@@ -515,7 +515,19 @@ void Engine::tick() {
     if (result.saveRequested) saveScene();
     if (result.openRequested) loadScene();
     if (result.quitRequested) m_window->requestClose();
-    if (result.togglePlayRequested) m_isPlaying = !m_isPlaying;
+    if (result.togglePlayRequested) {
+        if (!m_isPlaying) {
+            // Si sta per ENTRARE in Play: salva una copia della scena.
+            m_playSnapshot = m_scene;
+            m_isPlaying = true;
+        } else {
+            // Si sta per USCIRE dal Play: ripristina la copia salvata, così
+            // tutto quello che gli script hanno modificato durante il gioco
+            // (posizioni, rotazioni...) torna come prima di premere Play.
+            m_scene = m_playSnapshot;
+            m_isPlaying = false;
+        }
+    }
 
     if (result.clickedInViewport) {
         m_selectedObject = pickObjectAt(result.clickFractionX, result.clickFractionY, renderedWidth, renderedHeight);

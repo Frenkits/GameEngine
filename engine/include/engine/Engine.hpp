@@ -53,6 +53,9 @@ private:
     std::unique_ptr<Framebuffer> m_sceneFramebuffer;
     std::unique_ptr<Framebuffer> m_pickingFramebuffer; // render pass "invisibile" per il click-to-select
     Scene m_scene;
+    Scene m_playSnapshot; // copia della scena presa appena prima di entrare in Play,
+                          // ripristinata allo Stop: le modifiche fatte dagli script
+                          // durante il gioco (posizioni, rotazioni...) non restano.
     OrbitCamera m_camera;
     ObjectId m_selectedObject = kInvalidId;
     std::string m_projectPath;
