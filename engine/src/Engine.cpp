@@ -445,7 +445,35 @@ bool Engine::updateTransformGizmoInteraction(float mouseFractionX, float mouseFr
     return false;
 }
 
-Vec3 Engine::computeDropWorldPosition(float fractionX, float fractionY, float aspect) {
+void Engine::updateObjectBodyDrag(float mouseFractionX, float mouseFractionY, float aspect, bool viewportHovered) {
+    if (m_isPlaying) {
+        m_objectBodyDragActive = false;
+        return;
+    }
+
+    bool leftPressed = m_window->isMouseButtonPressed(GLFW_MOUSE_BUTTON_LEFT);
+    if (!leftPressed) {
+        m_objectBodyDragActive = false;
+        return;
+    }
+
+    if (!m_objectBodyDragActive) return; // nessun drag in corso, niente da fare
+
+    GameObject* obj = m_scene.getObject(m_selectedObject);
+    if (!obj) {
+        m_objectBodyDragActive = false;
+        return;
+    }
+
+    // Raggio dalla camera attraverso il mouse, intersecato col piano
+    // orizzontale all'altezza ATTUALE dell'oggetto (così scorre alla sua
+    // quota, non "cade" a terra). X/Z seguono il mouse, Y resta invariata.
+    Vec3 hit = computeDropWorldPosition(mouseFractionX, mouseFractionY, aspect, m_objectBodyDragPlaneY);
+    obj->transform.position.x = hit.x;
+    obj->transform.position.z = hit.z;
+}
+
+Vec3 Engine::computeDropWorldPosition(float fractionX, float fractionY, float aspect, float planeY) {
     // Ricostruiamo il raggio dalla camera attraverso il punto di rilascio
     // usando direttamente i vettori della camera orbitale (niente bisogno di
     // invertire matrici): forward/right/up + FOV/aspect bastano.
@@ -463,12 +491,14 @@ Vec3 Engine::computeDropWorldPosition(float fractionX, float fractionY, float as
                    + right * (ndcX * tanHalfFov * aspect)
                    + up * (ndcY * tanHalfFov)).normalized();
 
-    // Interseca col piano del terreno Y=0. Se il raggio è quasi parallelo al
-    // piano o punta "all'indietro" (sopra l'orizzonte), usa il target della
-    // camera come ripiego, per non piazzare l'oggetto a distanza assurda.
+    // Interseca col piano orizzontale ad altezza 'planeY' (di default il
+    // terreno, Y=0; il drag sul corpo passa invece l'altezza attuale
+    // dell'oggetto, così scorre alla sua quota senza "cadere" a terra). Se il
+    // raggio è quasi parallelo al piano o punta "all'indietro" (sopra
+    // l'orizzonte), usa il target della camera come ripiego.
     const float kMinRayY = 1e-4f;
     if (std::fabs(rayDir.y) > kMinRayY) {
-        float t = (0.0f - eye.y) / rayDir.y;
+        float t = (planeY - eye.y) / rayDir.y;
         if (t > 0.0f && t < 1000.0f) {
             return eye + rayDir * t;
         }
@@ -754,6 +784,17 @@ void Engine::tick() {
     if (result.clickedInViewport && !gizmoConsumedInput) {
         m_selectedObject = pickObjectAt(result.clickFractionX, result.clickFractionY, renderedWidth, renderedHeight);
 
+        if (m_selectedObject != kInvalidId) {
+            // Avvia anche un drag "sul corpo": se l'utente continua a tenere
+            // premuto e muove il mouse, l'oggetto scorre liberamente sul
+            // piano orizzontale alla sua altezza attuale — un modo rapido di
+            // spostarlo, in aggiunta al gizmo per il controllo asse-per-asse.
+            if (const GameObject* picked = m_scene.getObject(m_selectedObject)) {
+                m_objectBodyDragActive = true;
+                m_objectBodyDragPlaneY = picked->transform.position.y;
+            }
+        }
+
         if (const GameObject* picked = m_scene.getObject(m_selectedObject)) {
             std::cout << "[Picking] Frazione (" << result.clickFractionX << "," << result.clickFractionY
                        << ") su framebuffer " << renderedWidth << "x" << renderedHeight
@@ -763,6 +804,11 @@ void Engine::tick() {
                        << ") -> sfondo vuoto, deselezionato\n";
         }
     }
+
+    // Continua il drag sul corpo (se attivo) anche nei frame successivi al
+    // click, mentre il tasto resta premuto e il mouse si muove.
+    float dragAspect = renderedHeight > 0 ? static_cast<float>(renderedWidth) / static_cast<float>(renderedHeight) : 1.0f;
+    updateObjectBodyDrag(result.viewportMouseFractionX, result.viewportMouseFractionY, dragAspect, result.viewportHovered);
 
     if (result.draggedToSceneId != kInvalidId) {
         m_scene.setParent(result.draggedToSceneId, kInvalidId);

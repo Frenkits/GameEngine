@@ -106,6 +106,14 @@ private:
     bool updateTransformGizmoInteraction(float mouseFractionX, float mouseFractionY,
                                          int viewportW, int viewportH, bool viewportHovered);
 
+    // Drag "sul corpo": cliccando e tenendo premuto direttamente sull'oggetto
+    // (non sulle freccette del gizmo), scorre liberamente sul piano orizzontale
+    // alla sua altezza attuale — comodo per spostamenti rapidi su X/Z, mentre
+    // il gizmo resta per il controllo preciso (incluso l'asse verticale Y).
+    bool m_objectBodyDragActive = false;
+    float m_objectBodyDragPlaneY = 0.0f;
+    void updateObjectBodyDrag(float mouseFractionX, float mouseFractionY, float aspect, bool viewportHovered);
+
     // Ritorna le matrici view/projection da usare per questo frame: in Play,
     // se esiste un oggetto Camera nella scena, usa lui; altrimenti (o in Edit)
     // usa la camera orbitale dell'editor.
@@ -114,7 +122,7 @@ private:
     // Calcola dove piazzare un oggetto appena trascinato dagli Assets:
     // lancia un raggio dalla camera attraverso il punto esatto del rilascio
     // (fractionX/Y, 0..1) e lo interseca con il piano del terreno (Y=0).
-    Vec3 computeDropWorldPosition(float fractionX, float fractionY, float aspect);
+    Vec3 computeDropWorldPosition(float fractionX, float fractionY, float aspect, float planeY = 0.0f);
 
     // Composizione gerarchica delle trasformazioni: la matrice "mondo" di un
     // figlio è (matrice mondo del genitore) * (sua matrice locale). Così
