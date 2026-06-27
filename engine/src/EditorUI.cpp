@@ -210,6 +210,28 @@ void EditorUI::drawHierarchyNode(Scene& scene, ObjectId id, ObjectId& selectedId
         selectedId = id;
     }
 
+    // Sorgente del drag: trascina questo oggetto per riassegnargli un nuovo
+    // genitore (rilascialo su un altro nodo, o nella zona vuota/Scena per
+    // "staccarlo" e renderlo di nuovo un oggetto di primo livello).
+    if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_None)) {
+        ImGui::SetDragDropPayload("HIERARCHY_OBJECT_ID", &id, sizeof(ObjectId));
+        ImGui::Text("%s", obj->name.c_str());
+        ImGui::EndDragDropSource();
+    }
+
+    // Destinazione del drag: rilasciando qui un altro oggetto della Hierarchy,
+    // diventa figlio di QUESTO nodo (es. metti una Camera dentro un personaggio
+    // per farla muovere insieme a lui).
+    if (ImGui::BeginDragDropTarget()) {
+        if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("HIERARCHY_OBJECT_ID")) {
+            ObjectId draggedId = *static_cast<const ObjectId*>(payload->Data);
+            m_hasPendingReparent = true;
+            m_pendingReparentChild = draggedId;
+            m_pendingReparentNewParent = id;
+        }
+        ImGui::EndDragDropTarget();
+    }
+
     if (opened && !obj->children.empty()) {
         for (ObjectId childId : obj->children) {
             drawHierarchyNode(scene, childId, selectedId);
@@ -262,6 +284,27 @@ void EditorUI::drawHierarchyWindow(Scene& scene, ObjectId& selectedId) {
 
     for (ObjectId rootId : scene.getRootObjects()) {
         drawHierarchyNode(scene, rootId, selectedId);
+    }
+
+    // Zona vuota in fondo alla lista: trascinando qui un oggetto lo si
+    // "stacca" da qualsiasi genitore (torna un oggetto di primo livello).
+    ImGui::Dummy(ImVec2(-1, 40));
+    if (ImGui::BeginDragDropTarget()) {
+        if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("HIERARCHY_OBJECT_ID")) {
+            ObjectId draggedId = *static_cast<const ObjectId*>(payload->Data);
+            m_hasPendingReparent = true;
+            m_pendingReparentChild = draggedId;
+            m_pendingReparentNewParent = kInvalidId;
+        }
+        ImGui::EndDragDropTarget();
+    }
+    ImGui::TextDisabled("(trascina qui un oggetto per togliergli il genitore)");
+
+    // Applica ORA l'eventuale riassegno richiesto: l'intero albero è già
+    // stato disegnato, quindi modificare le liste children/m_rootObjects è sicuro.
+    if (m_hasPendingReparent) {
+        scene.setParent(m_pendingReparentChild, m_pendingReparentNewParent);
+        m_hasPendingReparent = false;
     }
 
     ImGui::End();
@@ -411,6 +454,13 @@ void EditorUI::drawViewportImageAndInput(FrameResult& result, unsigned int scene
             float localY = mouse.y - imageScreenPos.y;
             result.dropFractionX = localX / avail.x;
             result.dropFractionY = localY / avail.y;
+        }
+        // Un oggetto della Hierarchy trascinato sulla Scena 3D: lo "stacca"
+        // da qualsiasi genitore (stesso effetto della zona vuota in fondo
+        // alla Hierarchy), comodo se preferisci trascinare direttamente nel
+        // viewport invece di scorrere fino in fondo alla lista.
+        if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("HIERARCHY_OBJECT_ID")) {
+            result.draggedToSceneId = *static_cast<const ObjectId*>(payload->Data);
         }
         ImGui::EndDragDropTarget();
     }

@@ -17,6 +17,11 @@ public:
     // Crea una copia dell'oggetto (stesso parent, stesso transform, nome + " (Copia)")
     ObjectId duplicateObject(ObjectId id);
 
+    // Sposta 'id' sotto un nuovo genitore (kInvalidId = lo rende un oggetto
+    // di primo livello, "staccato" da qualsiasi genitore). Usato dal drag&drop
+    // nella Hierarchy. Rifiuta l'operazione (ritorna false, nessun effetto) se
+    // creerebbe un ciclo (es. rendere un oggetto figlio di un suo discendente).
+    bool setParent(ObjectId id, ObjectId newParent);
     GameObject* getObject(ObjectId id);
     const GameObject* getObject(ObjectId id) const;
 
@@ -38,6 +43,7 @@ private:
     ObjectId m_nextId = 0;
 
     void removeFromParentList(ObjectId id);
+    bool isAncestorOf(ObjectId potentialAncestor, ObjectId node) const;
 };
 
 } // namespace engine

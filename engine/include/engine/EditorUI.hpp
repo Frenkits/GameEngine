@@ -39,6 +39,12 @@ public:
         bool clickedInViewport = false;
         float clickFractionX = 0.0f; // 0 = sinistra, 1 = destra
         float clickFractionY = 0.0f; // 0 = in alto, 1 = in basso
+
+        // Id di un oggetto della Hierarchy trascinato e rilasciato sul
+        // pannello Scena: viene "staccato" da qualsiasi genitore (come
+        // trascinarlo nella zona vuota in fondo alla Hierarchy). kInvalidId
+        // se nessun drag di questo tipo è avvenuto in questo frame.
+        ObjectId draggedToSceneId = kInvalidId;
     };
 
     explicit EditorUI(GLFWwindow* windowHandle);
@@ -64,6 +70,14 @@ private:
     std::string m_assetRenamingPath;    // percorso assoluto dell'elemento in fase di rinomina (vuoto = nessuno)
     char m_assetRenameBuffer[256] = "";
     std::string m_assetPendingDelete;   // percorso assoluto in attesa di conferma eliminazione
+
+    // Riassegno genitore via drag&drop nella Hierarchy: applicato DOPO aver
+    // disegnato l'intero albero (non subito durante l'iterazione), altrimenti
+    // modificare le liste children/m_rootObjects mentre le stiamo scorrendo
+    // invaliderebbe l'iterazione in corso.
+    bool m_hasPendingReparent = false;
+    ObjectId m_pendingReparentChild = kInvalidId;
+    ObjectId m_pendingReparentNewParent = kInvalidId;
 
     void setupDockingLayout();
     void drawMenuBar(FrameResult& result, bool isPlaying);

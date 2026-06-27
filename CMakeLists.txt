@@ -24,6 +24,7 @@ if(NOT glfw3_FOUND)
         glfw
         GIT_REPOSITORY https://github.com/glfw/glfw.git
         GIT_TAG 3.4
+        GIT_SHALLOW TRUE
     )
     set(GLFW_BUILD_DOCS OFF CACHE BOOL "" FORCE)
     set(GLFW_BUILD_TESTS OFF CACHE BOOL "" FORCE)
@@ -40,6 +41,7 @@ FetchContent_Declare(
     imgui
     GIT_REPOSITORY https://github.com/ocornut/imgui.git
     GIT_TAG docking
+    GIT_SHALLOW TRUE
 )
 FetchContent_MakeAvailable(imgui)
 
@@ -69,6 +71,7 @@ if(BUILD_PYTHON_BINDINGS)
         pybind11
         GIT_REPOSITORY https://github.com/pybind/pybind11.git
         GIT_TAG v2.13.6
+        GIT_SHALLOW TRUE
     )
     FetchContent_MakeAvailable(pybind11)
 

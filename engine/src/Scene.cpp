@@ -35,6 +35,45 @@ ObjectId Scene::duplicateObject(ObjectId id) {
     return newId;
 }
 
+bool Scene::isAncestorOf(ObjectId potentialAncestor, ObjectId node) const {
+    // Risale dai genitori di 'node' verso l'alto: true se 'potentialAncestor'
+    // compare in quella catena (cioè è davvero un antenato di node, non node stesso).
+    ObjectId current = node;
+    while (current != kInvalidId) {
+        const GameObject* obj = getObject(current);
+        if (!obj) break;
+        current = obj->parent;
+        if (current == potentialAncestor) return true;
+    }
+    return false;
+}
+
+bool Scene::setParent(ObjectId id, ObjectId newParent) {
+    if (id == newParent) return false;
+
+    GameObject* obj = getObject(id);
+    if (!obj) return false;
+
+    if (newParent != kInvalidId) {
+        if (!getObject(newParent)) return false;
+        // Evita cicli: non si può rendere 'id' figlio di un suo discendente
+        // (altrimenti 'id' finirebbe per essere antenato E figlio di se stesso).
+        if (isAncestorOf(id, newParent)) return false;
+    }
+
+    if (obj->parent == newParent) return true; // già lì, niente da fare
+
+    removeFromParentList(id);
+    obj->parent = newParent;
+
+    if (newParent == kInvalidId) {
+        m_rootObjects.push_back(id);
+    } else if (GameObject* parentObj = getObject(newParent)) {
+        parentObj->children.push_back(id);
+    }
+    return true;
+}
+
 void Scene::destroyObject(ObjectId id) {
     auto* obj = getObject(id);
     if (!obj) return;

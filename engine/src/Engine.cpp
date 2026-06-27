@@ -220,12 +220,20 @@ std::unordered_map<ObjectId, Mat4> Engine::computeWorldMatrices() {
 
 void Engine::getActiveCameraMatrices(float aspect, Mat4& outView, Mat4& outProj, Vec3& outEyePos) {
     if (m_isPlaying) {
+        std::unordered_map<ObjectId, Mat4> worldMatrices = computeWorldMatrices();
+
         for (const auto& [id, obj] : m_scene.getAllObjects()) {
             if (obj.isCamera) {
-                Vec3 eye = obj.transform.position;
+                // IMPORTANTE: usiamo la matrice MONDO (genitore incluso), non
+                // solo la trasformazione locale dell'oggetto — altrimenti una
+                // camera "dentro" un altro oggetto (es. un personaggio) non
+                // lo seguirebbe quando quello si muove/ruota.
+                auto it = worldMatrices.find(id);
+                Mat4 worldMatrix = (it != worldMatrices.end()) ? it->second : obj.transform.getMatrix();
 
-                Vec3 forward, right, up;
-                computeLookVectors(obj.transform, forward, right, up);
+                Vec3 eye{worldMatrix.m[12], worldMatrix.m[13], worldMatrix.m[14]};
+                Vec3 forward = transformDirection(worldMatrix, Vec3{0.0f, 0.0f, 1.0f}).normalized();
+                Vec3 up = transformDirection(worldMatrix, Vec3{0.0f, 1.0f, 0.0f}).normalized();
                 Vec3 target = eye + forward;
 
                 outView = Mat4::lookAt(eye, target, up);
@@ -347,9 +355,13 @@ void Engine::renderSceneToFramebuffer() {
         // inquadra, in base a FOV/direzione. Solo in Edit (in Play la camera
         // attiva è il punto di vista stesso, non avrebbe senso disegnarlo).
         if (obj.isCamera && !m_isPlaying) {
-            Vec3 eye = obj.transform.position;
-            Vec3 forward, right, camUp;
-            computeLookVectors(obj.transform, forward, right, camUp);
+            // Stessa worldMatrix usata per disegnare l'oggetto: così il gizmo
+            // segue correttamente anche la trasformazione di un eventuale
+            // genitore (es. una camera "dentro" un personaggio).
+            Vec3 eye{worldMatrix.m[12], worldMatrix.m[13], worldMatrix.m[14]};
+            Vec3 forward = transformDirection(worldMatrix, Vec3{0.0f, 0.0f, 1.0f}).normalized();
+            Vec3 right = transformDirection(worldMatrix, Vec3{1.0f, 0.0f, 0.0f}).normalized();
+            Vec3 camUp = transformDirection(worldMatrix, Vec3{0.0f, 1.0f, 0.0f}).normalized();
 
             float gizmoDist = 3.0f; // lunghezza fissa del gizmo (non è il far plane reale)
             float gizmoAspect = (m_lastViewportHeight > 0.0f) ? (m_lastViewportWidth / m_lastViewportHeight) : (16.0f / 9.0f);
@@ -540,6 +552,10 @@ void Engine::tick() {
             std::cout << "[Picking] Frazione (" << result.clickFractionX << "," << result.clickFractionY
                        << ") -> sfondo vuoto, deselezionato\n";
         }
+    }
+
+    if (result.draggedToSceneId != kInvalidId) {
+        m_scene.setParent(result.draggedToSceneId, kInvalidId);
     }
 
     if (!result.droppedAssetPath.empty()) {
