@@ -415,8 +415,10 @@ void EditorUI::drawInspectorWindow(Scene& scene, ObjectId selectedId) {
     }
     if (obj->colliderType != 0) {
         ImGui::TextWrapped("Il gizmo arancione mostra la forma usata per le collisioni "
-                           "(engine.check_collision(id_a, id_b) negli script). Le freccette "
-                           "colorate al centro spostano il collider rispetto all'oggetto.");
+                           "(engine.check_collision(id_a, id_b) negli script). Muovendo "
+                           "l'oggetto col suo gizmo, il collider lo segue automaticamente "
+                           "(l'offset resta relativo). Per scostarlo apposta dal centro, "
+                           "usa il campo \"Centro (offset)\" sopra.");
     }
 
     ImGui::Separator();

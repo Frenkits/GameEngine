@@ -557,6 +557,16 @@ void Engine::computeColliderGizmoScreenPositions(const Mat4& view, const Mat4& p
     const GameObject* obj = m_scene.getObject(m_selectedObject);
     if (!obj || obj->colliderType == 0) return;
 
+    // Se l'offset è (0,0,0), il centro del collider coincide esattamente col
+    // punto di ancoraggio del gizmo di posizione: mostrarli entrambi sarebbe
+    // solo un doppione sovrapposto e inutile. Si "stacca" e diventa visibile
+    // solo quando l'offset viene effettivamente spostato da zero.
+    constexpr float kOffsetEpsilon = 0.001f;
+    bool offsetIsZero = std::fabs(obj->colliderOffset[0]) < kOffsetEpsilon
+                      && std::fabs(obj->colliderOffset[1]) < kOffsetEpsilon
+                      && std::fabs(obj->colliderOffset[2]) < kOffsetEpsilon;
+    if (offsetIsZero) return;
+
     std::unordered_map<ObjectId, Mat4> worldMatrices = computeWorldMatrices();
     auto it = worldMatrices.find(m_selectedObject);
     Mat4 wm = (it != worldMatrices.end()) ? it->second : obj->transform.getMatrix();
@@ -584,6 +594,14 @@ void Engine::renderColliderGizmo(const Mat4& view, const Mat4& proj) {
     if (m_selectedObject == kInvalidId) return;
     const GameObject* obj = m_scene.getObject(m_selectedObject);
     if (!obj || obj->colliderType == 0) return;
+
+    // Stesso controllo di computeColliderGizmoScreenPositions: niente da
+    // disegnare se l'offset è zero (coinciderebbe col gizmo di posizione).
+    constexpr float kOffsetEpsilon = 0.001f;
+    bool offsetIsZero = std::fabs(obj->colliderOffset[0]) < kOffsetEpsilon
+                      && std::fabs(obj->colliderOffset[1]) < kOffsetEpsilon
+                      && std::fabs(obj->colliderOffset[2]) < kOffsetEpsilon;
+    if (offsetIsZero) return;
 
     std::unordered_map<ObjectId, Mat4> worldMatrices = computeWorldMatrices();
     auto it = worldMatrices.find(m_selectedObject);
@@ -940,13 +958,13 @@ void Engine::renderSceneToFramebuffer() {
 
     // Gizmo di traslazione per l'oggetto selezionato: solo in Edit (in Play
     // non avrebbe senso, e comunque la Hierarchy/Inspector non sono visibili).
+    // Un solo gizmo, come in Unreal/Unity: il centro del collider si modifica
+    // solo numericamente dall'Inspector (campo "Centro/offset"), non con un
+    // secondo gizmo 3D separato — muovendo l'oggetto, il collider lo segue
+    // automaticamente (l'offset resta relativo).
     if (!m_isPlaying) {
         computeGizmoScreenPositions(view, proj, static_cast<int>(m_lastViewportWidth), static_cast<int>(m_lastViewportHeight));
         renderTransformGizmo(view, proj);
-        if (m_showColliderGizmos) {
-            computeColliderGizmoScreenPositions(view, proj, static_cast<int>(m_lastViewportWidth), static_cast<int>(m_lastViewportHeight));
-            renderColliderGizmo(view, proj);
-        }
     }
 
     Framebuffer::unbind();
@@ -1102,19 +1120,13 @@ void Engine::tick() {
         }
     }
 
-    // Il gizmo (posizione + maniglie collider) va interrogato SEMPRE (non solo
-    // al click) per gestire bene il drag continuo: ritorna true se questo
-    // frame "appartiene" al gizmo (hover, inizio drag, o drag in corso), nel
-    // qual caso non si deve toccare la selezione con il normale color-picking.
+    // Il gizmo va interrogato SEMPRE (non solo al click) per gestire bene il
+    // drag continuo: ritorna true se questo frame "appartiene" al gizmo
+    // (hover, inizio drag, o drag in corso), nel qual caso non si deve
+    // toccare la selezione con il normale color-picking.
     bool gizmoConsumedInput = updateTransformGizmoInteraction(
         result.viewportMouseFractionX, result.viewportMouseFractionY,
         renderedWidth, renderedHeight, result.viewportHovered);
-
-    bool colliderHandleConsumedInput = updateColliderGizmoInteraction(
-        result.viewportMouseFractionX, result.viewportMouseFractionY,
-        renderedWidth, renderedHeight, result.viewportHovered);
-
-    gizmoConsumedInput = gizmoConsumedInput || colliderHandleConsumedInput;
 
     // Continua il drag sul corpo (se attivo) anche nei frame successivi al
     // click, mentre il tasto resta premuto e il mouse si muove.
