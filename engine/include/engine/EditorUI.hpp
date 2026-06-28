@@ -59,6 +59,11 @@ public:
         // Stato del toggle "Visualizza > Avanzate > Collisioni": se false, i
         // wireframe arancioni dei collider non vengono disegnati nella scena.
         bool showColliderGizmos = true;
+
+        // Multi-scena: non vuoto = l'utente ha confermato l'azione corrispondente.
+        std::string newSceneName;    // "Nuova Scena" confermata con questo nome
+        std::string saveAsSceneName; // "Salva come..." confermata con questo nome
+        std::string openSceneName;   // scena esistente scelta da "Apri Scena"
     };
 
     explicit EditorUI(GLFWwindow* windowHandle);
@@ -71,7 +76,7 @@ public:
     // in modalità Play (mostra solo la vista di gioco a schermo intero).
     FrameResult drawPanels(Scene& scene, ObjectId& selectedId,
                            unsigned int sceneTextureId, const std::string& projectPath,
-                           bool isPlaying);
+                           bool isPlaying, const std::string& currentSceneName);
 
     void endFrame();
 
@@ -96,8 +101,14 @@ private:
     // Stato del toggle "Visualizza > Avanzate > Collisioni" (persiste tra i frame)
     bool m_showColliderGizmos = true;
 
+    // Modali "Nuova Scena" / "Salva come..."
+    bool m_showNewSceneModal = false;
+    char m_newSceneNameBuf[128] = "";
+    bool m_showSaveAsModal = false;
+    char m_saveAsNameBuf[128] = "";
+
     void setupDockingLayout();
-    void drawMenuBar(FrameResult& result, bool isPlaying);
+    void drawMenuBar(FrameResult& result, bool isPlaying, const std::string& projectPath, const std::string& currentSceneName);
     void handleShortcuts(Scene& scene, ObjectId& selectedId);
     void drawHierarchyNode(Scene& scene, ObjectId id, ObjectId& selectedId);
     void drawHierarchyWindow(Scene& scene, ObjectId& selectedId);

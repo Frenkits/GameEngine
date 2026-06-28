@@ -160,29 +160,37 @@ Engine::Engine(int width, int height, const std::string& title, const std::strin
     m_sceneFramebuffer = std::make_unique<Framebuffer>(
         static_cast<int>(m_lastViewportWidth), static_cast<int>(m_lastViewportHeight));
 
-    if (!m_projectPath.empty()) {
-        std::error_code ec;
-        fs::create_directories(m_projectPath, ec);
-        fs::create_directories(m_projectPath + "/assets", ec);
-
-        std::string scenePath = m_projectPath + "/scene.txt";
-        if (fs::exists(scenePath, ec)) {
-            m_scene.loadFromFile(scenePath);
-        } else {
-            m_scene.createObject("Cubo");
-            ObjectId lightId = m_scene.createObject("Luce");
-            if (auto* light = m_scene.getObject(lightId)) {
-                light->isLight = true;
-                light->transform.position = {5.0f, 8.0f, 5.0f};
-            }
-        }
-    } else {
+    auto createDefaultObjects = [&]() {
         m_scene.createObject("Cubo");
         ObjectId lightId = m_scene.createObject("Luce");
         if (auto* light = m_scene.getObject(lightId)) {
             light->isLight = true;
             light->transform.position = {5.0f, 8.0f, 5.0f};
         }
+    };
+
+    if (!m_projectPath.empty()) {
+        std::error_code ec;
+        fs::create_directories(m_projectPath, ec);
+        fs::create_directories(m_projectPath + "/assets", ec);
+        fs::create_directories(m_projectPath + "/scenes", ec);
+
+        std::string mainPath = sceneFilePath("Main");
+        std::string legacyPath = m_projectPath + "/scene.txt"; // formato precedente, da migrare
+
+        if (fs::exists(mainPath, ec)) {
+            m_scene.loadFromFile(mainPath);
+        } else if (fs::exists(legacyPath, ec)) {
+            // Progetto creato prima dell'introduzione delle scene multiple:
+            // migra automaticamente il vecchio file nel nuovo formato "Main".
+            m_scene.loadFromFile(legacyPath);
+            m_scene.saveToFile(mainPath);
+        } else {
+            createDefaultObjects();
+        }
+        m_currentSceneName = "Main";
+    } else {
+        createDefaultObjects();
     }
 }
 
@@ -192,15 +200,58 @@ bool Engine::isRunning() const {
     return !m_window->shouldClose();
 }
 
+std::string Engine::sceneFilePath(const std::string& name) const {
+    std::string base = m_projectPath.empty() ? "scenes" : (m_projectPath + "/scenes");
+    return base + "/" + name + ".txt";
+}
+
 void Engine::saveScene() {
-    std::string path = m_projectPath.empty() ? "scene.txt" : (m_projectPath + "/scene.txt");
-    m_scene.saveToFile(path);
+    saveSceneAs(m_currentSceneName);
 }
 
 void Engine::loadScene() {
-    std::string path = m_projectPath.empty() ? "scene.txt" : (m_projectPath + "/scene.txt");
-    m_scene.loadFromFile(path);
+    loadSceneByName(m_currentSceneName);
+}
+
+bool Engine::loadSceneByName(const std::string& name) {
+    std::string path = sceneFilePath(name);
+    if (!m_scene.loadFromFile(path)) {
+        std::cout << "[Scene] Impossibile caricare la scena \"" << name << "\" (" << path << ")\n";
+        return false;
+    }
+    m_currentSceneName = name;
     m_selectedObject = kInvalidId;
+    std::cout << "[Scene] Caricata scena \"" << name << "\"\n";
+    return true;
+}
+
+void Engine::saveSceneAs(const std::string& name) {
+    std::error_code ec;
+    std::string dir = m_projectPath.empty() ? "scenes" : (m_projectPath + "/scenes");
+    fs::create_directories(dir, ec);
+    m_scene.saveToFile(sceneFilePath(name));
+    m_currentSceneName = name;
+}
+
+void Engine::newScene(const std::string& name) {
+    m_scene = Scene(); // scena completamente vuota, nessun oggetto di default
+    m_selectedObject = kInvalidId;
+    saveSceneAs(name);
+    std::cout << "[Scene] Creata nuova scena vuota \"" << name << "\"\n";
+}
+
+std::vector<std::string> Engine::listScenes() const {
+    std::vector<std::string> result;
+    std::string dir = m_projectPath.empty() ? "scenes" : (m_projectPath + "/scenes");
+    std::error_code ec;
+    if (fs::exists(dir, ec) && fs::is_directory(dir, ec)) {
+        for (const auto& entry : fs::directory_iterator(dir, ec)) {
+            if (entry.path().extension() == ".txt") {
+                result.push_back(entry.path().stem().string());
+            }
+        }
+    }
+    return result;
 }
 
 void Engine::updateCameraInput() {
@@ -1095,7 +1146,7 @@ void Engine::tick() {
 
     m_editorUI->beginFrame();
     EditorUI::FrameResult result = m_editorUI->drawPanels(
-        m_scene, m_selectedObject, m_sceneFramebuffer->colorTexture(), m_projectPath, m_isPlaying);
+        m_scene, m_selectedObject, m_sceneFramebuffer->colorTexture(), m_projectPath, m_isPlaying, m_currentSceneName);
     m_editorUI->endFrame();
 
     m_lastViewportWidth = result.viewportWidth;
@@ -1106,16 +1157,26 @@ void Engine::tick() {
     if (result.saveRequested) saveScene();
     if (result.openRequested) loadScene();
     if (result.quitRequested) m_window->requestClose();
+    if (!result.newSceneName.empty()) newScene(result.newSceneName);
+    if (!result.saveAsSceneName.empty()) saveSceneAs(result.saveAsSceneName);
+    if (!result.openSceneName.empty()) loadSceneByName(result.openSceneName);
     if (result.togglePlayRequested) {
         if (!m_isPlaying) {
-            // Si sta per ENTRARE in Play: salva una copia della scena.
+            // Si sta per ENTRARE in Play: salva una copia della scena E del
+            // suo nome (uno script potrebbe cambiare scena durante il gioco).
             m_playSnapshot = m_scene;
+            m_playSnapshotSceneName = m_currentSceneName;
             m_isPlaying = true;
         } else {
-            // Si sta per USCIRE dal Play: ripristina la copia salvata, così
-            // tutto quello che gli script hanno modificato durante il gioco
-            // (posizioni, rotazioni...) torna come prima di premere Play.
+            // Si sta per USCIRE dal Play: ripristina sia gli oggetti sia il
+            // nome della scena di partenza. Senza ripristinare anche il nome,
+            // un cambio scena fatto da uno script durante il Play (es.
+            // load_scene_by_name) lascerebbe il nome "sbagliato" attivo anche
+            // in Edit: un salvataggio successivo scriverebbe il contenuto
+            // ripristinato (quello di partenza) sotto il nome della scena di
+            // destinazione, corrompendola con una copia di quella di partenza.
             m_scene = m_playSnapshot;
+            m_currentSceneName = m_playSnapshotSceneName;
             m_isPlaying = false;
         }
     }

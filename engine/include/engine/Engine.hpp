@@ -44,6 +44,16 @@ public:
     void saveScene();
     void loadScene();
 
+    // --- Scene multiple (come i "livelli" di Unity): salvate in
+    // "<progetto>/scenes/<nome>.txt". loadSceneByName/saveSceneAs/newScene
+    // sono richiamabili anche dagli script Python, per cambiare scena durante
+    // il gioco (es. "quando tocchi la porta, carica Level2").
+    const std::string& getCurrentSceneName() const { return m_currentSceneName; }
+    bool loadSceneByName(const std::string& name);
+    void saveSceneAs(const std::string& name);
+    void newScene(const std::string& name);
+    std::vector<std::string> listScenes() const;
+
     bool isPlaying() const { return m_isPlaying; }
 
     // Rilevamento collisioni tra due oggetti (richiamabile dagli script Python).
@@ -64,11 +74,18 @@ private:
     Scene m_playSnapshot; // copia della scena presa appena prima di entrare in Play,
                           // ripristinata allo Stop: le modifiche fatte dagli script
                           // durante il gioco (posizioni, rotazioni...) non restano.
+    std::string m_playSnapshotSceneName; // idem per il NOME della scena: se uno script
+                                          // cambia scena durante il Play (es. load_scene_by_name),
+                                          // allo Stop deve tornare quello di partenza, altrimenti
+                                          // un salvataggio successivo scriverebbe il contenuto
+                                          // sbagliato sotto il nome sbagliato.
     OrbitCamera m_camera;
     ObjectId m_selectedObject = kInvalidId;
     std::string m_projectPath;
     bool m_isPlaying = false; // true = vista di gioco a schermo intero (Play mode)
     bool m_showColliderGizmos = true; // toggle "Visualizza > Avanzate > Collisioni"
+    std::string m_currentSceneName = "Main";
+    std::string sceneFilePath(const std::string& name) const;
 
     float m_clearColor[4] = {0.1f, 0.1f, 0.12f, 1.0f};
     double m_lastFrameTime = 0.0;

@@ -93,14 +93,47 @@ void EditorUI::setupDockingLayout() {
     ImGui::DockBuilderFinish(dockspaceId);
 }
 
-void EditorUI::drawMenuBar(FrameResult& result, bool isPlaying) {
+void EditorUI::drawMenuBar(FrameResult& result, bool isPlaying, const std::string& projectPath, const std::string& currentSceneName) {
     if (ImGui::BeginMenuBar()) {
         if (ImGui::BeginMenu("File")) {
+            ImGui::TextDisabled("Scena: %s", currentSceneName.c_str());
+            ImGui::Separator();
+
             if (ImGui::MenuItem("Salva Scena", "Ctrl+S")) {
                 result.saveRequested = true;
             }
-            if (ImGui::MenuItem("Apri Scena")) {
-                result.openRequested = true;
+            if (ImGui::MenuItem("Salva come...")) {
+                m_showSaveAsModal = true;
+                snprintf(m_saveAsNameBuf, sizeof(m_saveAsNameBuf), "%s", currentSceneName.c_str());
+            }
+            if (ImGui::MenuItem("Ricarica Scena")) {
+                result.openRequested = true; // scarta le modifiche non salvate, ricarica da disco
+            }
+            ImGui::Separator();
+            if (ImGui::MenuItem("Nuova Scena...")) {
+                m_showNewSceneModal = true;
+                m_newSceneNameBuf[0] = '\0';
+            }
+            if (ImGui::BeginMenu("Apri Scena")) {
+                std::error_code ec;
+                std::string scenesDir = projectPath.empty() ? "scenes" : (projectPath + "/scenes");
+                bool any = false;
+                if (fs::exists(scenesDir, ec) && fs::is_directory(scenesDir, ec)) {
+                    for (const auto& entry : fs::directory_iterator(scenesDir, ec)) {
+                        if (entry.path().extension() == ".txt") {
+                            any = true;
+                            std::string name = entry.path().stem().string();
+                            bool isCurrent = (name == currentSceneName);
+                            if (ImGui::MenuItem(name.c_str(), nullptr, isCurrent)) {
+                                result.openSceneName = name;
+                            }
+                        }
+                    }
+                }
+                if (!any) {
+                    ImGui::TextDisabled("(nessun'altra scena salvata)");
+                }
+                ImGui::EndMenu();
             }
             ImGui::Separator();
             if (ImGui::MenuItem("Esci")) {
@@ -134,6 +167,50 @@ void EditorUI::drawMenuBar(FrameResult& result, bool isPlaying) {
 
     result.showColliderGizmos = m_showColliderGizmos;
 
+    // --- Modale "Nuova Scena" ---
+    if (m_showNewSceneModal) {
+        ImGui::OpenPopup("Nuova Scena");
+        m_showNewSceneModal = false;
+    }
+    if (ImGui::BeginPopupModal("Nuova Scena", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+        ImGui::TextWrapped("La scena attuale verra' sostituita da una nuova scena vuota, "
+                           "salvata subito col nome scelto. Salva prima quella corrente se non vuoi perderla.");
+        ImGui::InputText("Nome", m_newSceneNameBuf, sizeof(m_newSceneNameBuf));
+        bool validName = m_newSceneNameBuf[0] != '\0';
+        if (!validName) ImGui::BeginDisabled();
+        if (ImGui::Button("Crea", ImVec2(120, 0))) {
+            result.newSceneName = m_newSceneNameBuf;
+            ImGui::CloseCurrentPopup();
+        }
+        if (!validName) ImGui::EndDisabled();
+        ImGui::SameLine();
+        if (ImGui::Button("Annulla", ImVec2(120, 0))) {
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::EndPopup();
+    }
+
+    // --- Modale "Salva come..." ---
+    if (m_showSaveAsModal) {
+        ImGui::OpenPopup("Salva come");
+        m_showSaveAsModal = false;
+    }
+    if (ImGui::BeginPopupModal("Salva come", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+        ImGui::InputText("Nome", m_saveAsNameBuf, sizeof(m_saveAsNameBuf));
+        bool validName = m_saveAsNameBuf[0] != '\0';
+        if (!validName) ImGui::BeginDisabled();
+        if (ImGui::Button("Salva", ImVec2(120, 0))) {
+            result.saveAsSceneName = m_saveAsNameBuf;
+            ImGui::CloseCurrentPopup();
+        }
+        if (!validName) ImGui::EndDisabled();
+        ImGui::SameLine();
+        if (ImGui::Button("Annulla", ImVec2(120, 0))) {
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::EndPopup();
+    }
+
     ImGuiIO& io = ImGui::GetIO();
     bool ctrl = io.KeyCtrl;
     if (ctrl && ImGui::IsKeyPressed(ImGuiKey_S)) {
@@ -159,7 +236,7 @@ void EditorUI::handleShortcuts(Scene& scene, ObjectId& selectedId) {
 
 EditorUI::FrameResult EditorUI::drawPanels(Scene& scene, ObjectId& selectedId,
                                             unsigned int sceneTextureId, const std::string& projectPath,
-                                            bool isPlaying) {
+                                            bool isPlaying, const std::string& currentSceneName) {
     FrameResult result;
 
     // Durante il Play non creiamo affatto la finestra "contenitore" dell'editor
@@ -188,7 +265,7 @@ EditorUI::FrameResult EditorUI::drawPanels(Scene& scene, ObjectId& selectedId,
     ImGui::Begin("EditorRoot", nullptr, hostFlags);
     ImGui::PopStyleVar(3);
 
-    drawMenuBar(result, isPlaying);
+    drawMenuBar(result, isPlaying, projectPath, currentSceneName);
 
     ImGuiID dockspaceId = ImGui::GetID(kDockspaceName);
     if (!m_dockingLayoutBuilt) {

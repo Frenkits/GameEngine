@@ -64,6 +64,20 @@ PYBIND11_MODULE(pyengine, m) {
         .def("save_scene", &engine::Engine::saveScene, "Salva la scena nel progetto corrente")
         .def("load_scene", &engine::Engine::loadScene, "Carica la scena dal progetto corrente")
         .def("get_project_path", &engine::Engine::projectPath)
+
+        // --- Scene multiple: richiamabili anche dagli script Python per
+        // cambiare scena durante il gioco (es. "tocchi la porta -> Level2") ---
+        .def("get_current_scene_name", &engine::Engine::getCurrentSceneName,
+             "Nome della scena attualmente caricata")
+        .def("load_scene_by_name", &engine::Engine::loadSceneByName, py::arg("name"),
+             "Carica la scena con questo nome (da \"<progetto>/scenes/<nome>.txt\"). "
+             "Ritorna False se non esiste.")
+        .def("save_scene_as", &engine::Engine::saveSceneAs, py::arg("name"),
+             "Salva la scena attuale con un nuovo nome (diventa la scena corrente)")
+        .def("new_scene", &engine::Engine::newScene, py::arg("name"),
+             "Crea una scena completamente vuota con questo nome e la rende corrente")
+        .def("list_scenes", &engine::Engine::listScenes,
+             "Lista dei nomi di tutte le scene salvate nel progetto")
         .def("is_playing", &engine::Engine::isPlaying,
              "True se l'editor è in modalità Play (vista di gioco a schermo intero)")
         .def("check_collision", &engine::Engine::checkCollision, py::arg("id_a"), py::arg("id_b"),
