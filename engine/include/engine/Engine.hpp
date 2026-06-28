@@ -105,6 +105,13 @@ private:
     // usate per il render, così il gizmo disegnato e quello cliccabile coincidono.
     void computeGizmoScreenPositions(const Mat4& view, const Mat4& proj, int viewportW, int viewportH);
 
+    // Punto su cui ancorare il gizmo di traslazione per un oggetto: se ha una
+    // mesh, usa il centro VISIVO della sua geometria (trasformato in mondo),
+    // non solo la Transform (spesso a 0,0,0 per i pezzi di un import multi-
+    // oggetto). Altrimenti (nessuna mesh: luce, camera, vuoto...) usa la
+    // posizione mondo della Transform come prima.
+    Vec3 getGizmoAnchorWorldPos(ObjectId id);
+
     // Disegna le 3 freccette nel framebuffer della scena.
     void renderTransformGizmo(const Mat4& view, const Mat4& proj);
 

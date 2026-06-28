@@ -36,10 +36,17 @@ public:
 
     bool isValid() const { return m_vertexCount > 0; }
 
+    // Centro (del bounding box) della mesh in spazio LOCALE: utile per
+    // ancorare gizmo/strumenti al centro VISIVO del pezzo, dato che molti
+    // oggetti importati hanno la Transform a (0,0,0) e tutta la forma reale
+    // dentro ai vertici della mesh stessa.
+    Vec3 getLocalCenter() const { return m_localCenter; }
+
 private:
     unsigned int m_vao = 0;
     unsigned int m_vbo = 0;
     int m_vertexCount = 0;
+    Vec3 m_localCenter{};
 };
 
 } // namespace engine

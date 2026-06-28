@@ -48,6 +48,17 @@ namespace {
         };
     }
 
+    // Come transformDirection ma per un PUNTO (tiene conto anche della
+    // traslazione, colonna 3 della matrice): usata per portare un centro
+    // mesh locale in coordinate mondo.
+    Vec3 transformPoint(const Mat4& m, const Vec3& p) {
+        return Vec3{
+            m.m[0] * p.x + m.m[4] * p.y + m.m[8] * p.z + m.m[12],
+            m.m[1] * p.x + m.m[5] * p.y + m.m[9] * p.z + m.m[13],
+            m.m[2] * p.x + m.m[6] * p.y + m.m[10] * p.z + m.m[14]
+        };
+    }
+
     // Calcola forward/right/up "di sguardo" di un oggetto usando la sua
     // rotazione COMPLETA (stessa composizione Rz*Ry*Rx di Transform::getMatrix()).
     void computeLookVectors(const Transform& transform, Vec3& outForward, Vec3& outRight, Vec3& outUp) {
@@ -330,6 +341,25 @@ void Engine::getActiveCameraMatrices(float aspect, Mat4& outView, Mat4& outProj,
     outEyePos = m_camera.getEyePosition();
 }
 
+Vec3 Engine::getGizmoAnchorWorldPos(ObjectId id) {
+    const GameObject* obj = m_scene.getObject(id);
+    if (!obj) return Vec3{};
+
+    std::unordered_map<ObjectId, Mat4> worldMatrices = computeWorldMatrices();
+    auto it = worldMatrices.find(id);
+    Mat4 worldMatrix = (it != worldMatrices.end()) ? it->second : obj->transform.getMatrix();
+
+    std::shared_ptr<Mesh> mesh = getMeshForObject(*obj);
+    if (mesh && mesh->isValid()) {
+        // Ha una mesh: ancora al centro VISIVO della sua geometria, non alla
+        // Transform (spesso a 0,0,0 per i pezzi importati da un .obj multi-oggetto).
+        return transformPoint(worldMatrix, mesh->getLocalCenter());
+    }
+
+    // Nessuna mesh (luce, camera, vuoto, contenitore...): usa la Transform.
+    return Vec3{worldMatrix.m[12], worldMatrix.m[13], worldMatrix.m[14]};
+}
+
 void Engine::computeGizmoScreenPositions(const Mat4& view, const Mat4& proj, int viewportW, int viewportH) {
     m_gizmoVisibleThisFrame = false;
     if (m_selectedObject == kInvalidId) return;
@@ -337,10 +367,7 @@ void Engine::computeGizmoScreenPositions(const Mat4& view, const Mat4& proj, int
     const GameObject* obj = m_scene.getObject(m_selectedObject);
     if (!obj) return;
 
-    std::unordered_map<ObjectId, Mat4> worldMatrices = computeWorldMatrices();
-    auto it = worldMatrices.find(m_selectedObject);
-    Mat4 worldMatrix = (it != worldMatrices.end()) ? it->second : obj->transform.getMatrix();
-    Vec3 origin{worldMatrix.m[12], worldMatrix.m[13], worldMatrix.m[14]};
+    Vec3 origin = getGizmoAnchorWorldPos(m_selectedObject);
 
     // Lunghezza del gizmo proporzionale alla distanza dalla camera: resta
     // leggibile sia da vicino che da lontano (altrimenti a distanza diventa
@@ -369,10 +396,7 @@ void Engine::renderTransformGizmo(const Mat4& view, const Mat4& proj) {
     const GameObject* obj = m_scene.getObject(m_selectedObject);
     if (!obj) return;
 
-    std::unordered_map<ObjectId, Mat4> worldMatrices = computeWorldMatrices();
-    auto it = worldMatrices.find(m_selectedObject);
-    Mat4 worldMatrix = (it != worldMatrices.end()) ? it->second : obj->transform.getMatrix();
-    Vec3 origin{worldMatrix.m[12], worldMatrix.m[13], worldMatrix.m[14]};
+    Vec3 origin = getGizmoAnchorWorldPos(m_selectedObject);
 
     Vec3 eyePos = m_camera.getEyePosition();
     float dist = (origin - eyePos).length();

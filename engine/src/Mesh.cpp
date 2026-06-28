@@ -2,6 +2,7 @@
 #include "engine/Shader.hpp"
 #include <glad/glad.h>
 #include <memory>
+#include <algorithm>
 
 namespace engine {
 
@@ -93,6 +94,19 @@ Mesh::Mesh(const std::vector<float>& vertices) {
 
     constexpr int kFloatsPerVertex = 6; // x,y,z, nx,ny,nz
     m_vertexCount = static_cast<int>(vertices.size() / kFloatsPerVertex);
+
+    // Centro del bounding box in spazio locale: serve ad ancorare il gizmo
+    // di trasformazione al centro VISIVO del pezzo (la sua Transform è quasi
+    // sempre a 0,0,0 per i pezzi importati da un .obj multi-oggetto).
+    float minX = vertices[0], maxX = vertices[0];
+    float minY = vertices[1], maxY = vertices[1];
+    float minZ = vertices[2], maxZ = vertices[2];
+    for (size_t i = 0; i < vertices.size(); i += kFloatsPerVertex) {
+        minX = std::min(minX, vertices[i]);     maxX = std::max(maxX, vertices[i]);
+        minY = std::min(minY, vertices[i + 1]); maxY = std::max(maxY, vertices[i + 1]);
+        minZ = std::min(minZ, vertices[i + 2]); maxZ = std::max(maxZ, vertices[i + 2]);
+    }
+    m_localCenter = Vec3{(minX + maxX) * 0.5f, (minY + maxY) * 0.5f, (minZ + maxZ) * 0.5f};
 
     glGenVertexArrays(1, &m_vao);
     glGenBuffers(1, &m_vbo);
