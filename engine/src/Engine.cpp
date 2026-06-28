@@ -1164,27 +1164,68 @@ bool Engine::checkCollision(ObjectId a, ObjectId b) {
 
     std::unordered_map<ObjectId, Mat4> worldMatrices = computeWorldMatrices();
 
-    auto centerAndRadius = [&](const GameObject* obj, ObjectId id) -> std::pair<Vec3, float> {
+    auto getCenter = [&](const GameObject* obj, ObjectId id) -> Vec3 {
         auto it = worldMatrices.find(id);
         Mat4 wm = (it != worldMatrices.end()) ? it->second : obj->transform.getMatrix();
-        Vec3 center = Vec3{wm.m[12], wm.m[13], wm.m[14]}
-                    + Vec3{obj->colliderOffset[0], obj->colliderOffset[1], obj->colliderOffset[2]};
-
-        float radius = 0.5f;
-        if (obj->colliderType == 1) {
-            float hx = obj->colliderBoxSize[0] * 0.5f, hy = obj->colliderBoxSize[1] * 0.5f, hz = obj->colliderBoxSize[2] * 0.5f;
-            radius = std::sqrt(hx * hx + hy * hy + hz * hz); // raggio della sfera che racchiude tutto il box
-        } else if (obj->colliderType == 2) {
-            radius = obj->colliderSphereRadius;
-        } else if (obj->colliderType == 3) {
-            radius = obj->colliderCapsuleRadius + obj->colliderCapsuleHeight * 0.5f; // sovrastima prudente
-        }
-        return {center, radius};
+        return Vec3{wm.m[12], wm.m[13], wm.m[14]}
+             + Vec3{obj->colliderOffset[0], obj->colliderOffset[1], obj->colliderOffset[2]};
     };
 
-    auto [centerA, radiusA] = centerAndRadius(objA, a);
-    auto [centerB, radiusB] = centerAndRadius(objB, b);
+    Vec3 centerA = getCenter(objA, a);
+    Vec3 centerB = getCenter(objB, b);
 
+    // Box-Box: test AABB ESATTO (ignora la rotazione del collider, che resta
+    // solo visiva — un vero OBB-OBB con rotazione è un possibile sviluppo futuro).
+    if (objA->colliderType == 1 && objB->colliderType == 1) {
+        Vec3 halfA{objA->colliderBoxSize[0] * 0.5f, objA->colliderBoxSize[1] * 0.5f, objA->colliderBoxSize[2] * 0.5f};
+        Vec3 halfB{objB->colliderBoxSize[0] * 0.5f, objB->colliderBoxSize[1] * 0.5f, objB->colliderBoxSize[2] * 0.5f};
+        return std::fabs(centerA.x - centerB.x) <= (halfA.x + halfB.x)
+            && std::fabs(centerA.y - centerB.y) <= (halfA.y + halfB.y)
+            && std::fabs(centerA.z - centerB.z) <= (halfA.z + halfB.z);
+    }
+
+    // Sfera-Sfera: distanza ESATTA tra i centri (già precisa anche prima).
+    if (objA->colliderType == 2 && objB->colliderType == 2) {
+        float dist = (centerA - centerB).length();
+        return dist <= (objA->colliderSphereRadius + objB->colliderSphereRadius);
+    }
+
+    // Box-Sfera (in entrambi gli ordini): punto più vicino del box al centro
+    // della sfera, poi distanza — ESATTO (ignora sempre la rotazione del box).
+    if ((objA->colliderType == 1 && objB->colliderType == 2) || (objA->colliderType == 2 && objB->colliderType == 1)) {
+        bool aIsBox = (objA->colliderType == 1);
+        const GameObject* boxObj = aIsBox ? objA : objB;
+        const GameObject* sphereObj = aIsBox ? objB : objA;
+        Vec3 boxCenter = aIsBox ? centerA : centerB;
+        Vec3 sphereCenter = aIsBox ? centerB : centerA;
+
+        Vec3 half{boxObj->colliderBoxSize[0] * 0.5f, boxObj->colliderBoxSize[1] * 0.5f, boxObj->colliderBoxSize[2] * 0.5f};
+        Vec3 closest{
+            std::max(boxCenter.x - half.x, std::min(sphereCenter.x, boxCenter.x + half.x)),
+            std::max(boxCenter.y - half.y, std::min(sphereCenter.y, boxCenter.y + half.y)),
+            std::max(boxCenter.z - half.z, std::min(sphereCenter.z, boxCenter.z + half.z))
+        };
+
+        float dist = (closest - sphereCenter).length();
+        return dist <= sphereObj->colliderSphereRadius;
+    }
+
+    // Qualsiasi caso che coinvolge una Capsula: resta l'approssimazione a
+    // sfera avvolgente (raggio capsula + metà altezza) — meno precisa, ma la
+    // Capsula non è coinvolta nel caso più comune (Box contro Box).
+    auto boundingRadius = [&](const GameObject* obj) -> float {
+        if (obj->colliderType == 1) {
+            float hx = obj->colliderBoxSize[0] * 0.5f, hy = obj->colliderBoxSize[1] * 0.5f, hz = obj->colliderBoxSize[2] * 0.5f;
+            return std::sqrt(hx * hx + hy * hy + hz * hz);
+        } else if (obj->colliderType == 2) {
+            return obj->colliderSphereRadius;
+        } else if (obj->colliderType == 3) {
+            return obj->colliderCapsuleRadius + obj->colliderCapsuleHeight * 0.5f;
+        }
+        return 0.5f;
+    };
+    float radiusA = boundingRadius(objA);
+    float radiusB = boundingRadius(objB);
     float dist = (centerA - centerB).length();
     return dist <= (radiusA + radiusB);
 }
