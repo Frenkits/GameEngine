@@ -120,8 +120,19 @@ void EditorUI::drawMenuBar(FrameResult& result, bool isPlaying) {
             }
         }
 
+        ImGui::Separator();
+        if (ImGui::BeginMenu("Visualizza")) {
+            if (ImGui::BeginMenu("Avanzate")) {
+                ImGui::Checkbox("Collisioni", &m_showColliderGizmos);
+                ImGui::EndMenu();
+            }
+            ImGui::EndMenu();
+        }
+
         ImGui::EndMenuBar();
     }
+
+    result.showColliderGizmos = m_showColliderGizmos;
 
     ImGuiIO& io = ImGui::GetIO();
     bool ctrl = io.KeyCtrl;

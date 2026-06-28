@@ -55,6 +55,10 @@ public:
         // usata da Engine per sapere dove copiare i file trascinati dentro
         // l'editor da Esplora File (o altro programma del sistema).
         std::string currentAssetsFolder;
+
+        // Stato del toggle "Visualizza > Avanzate > Collisioni": se false, i
+        // wireframe arancioni dei collider non vengono disegnati nella scena.
+        bool showColliderGizmos = true;
     };
 
     explicit EditorUI(GLFWwindow* windowHandle);
@@ -88,6 +92,9 @@ private:
     bool m_hasPendingReparent = false;
     ObjectId m_pendingReparentChild = kInvalidId;
     ObjectId m_pendingReparentNewParent = kInvalidId;
+
+    // Stato del toggle "Visualizza > Avanzate > Collisioni" (persiste tra i frame)
+    bool m_showColliderGizmos = true;
 
     void setupDockingLayout();
     void drawMenuBar(FrameResult& result, bool isPlaying);

@@ -631,7 +631,7 @@ bool Engine::updateColliderGizmoInteraction(float mouseFractionX, float mouseFra
         m_colliderGizmoDragAxis = -1;
     }
 
-    if (!m_colliderGizmoVisibleThisFrame || m_selectedObject == kInvalidId) {
+    if (!m_showColliderGizmos || !m_colliderGizmoVisibleThisFrame || m_selectedObject == kInvalidId) {
         m_colliderGizmoDragAxis = -1;
         m_colliderGizmoHoverAxis = -1;
         return false;
@@ -855,8 +855,9 @@ void Engine::renderSceneToFramebuffer() {
         }
 
         // Gizmo del collider: mostra la forma usata per il rilevamento
-        // collisioni (Engine::checkCollision), in arancione. Solo in Edit.
-        if (obj.colliderType != 0 && !m_isPlaying) {
+        // collisioni (Engine::checkCollision), in arancione. Solo in Edit, e
+        // solo se il toggle "Visualizza > Avanzate > Collisioni" è attivo.
+        if (obj.colliderType != 0 && !m_isPlaying && m_showColliderGizmos) {
             Vec3 center = Vec3{worldMatrix.m[12], worldMatrix.m[13], worldMatrix.m[14]}
                         + Vec3{obj.colliderOffset[0], obj.colliderOffset[1], obj.colliderOffset[2]};
             std::vector<float> colliderLines;
@@ -942,8 +943,10 @@ void Engine::renderSceneToFramebuffer() {
     if (!m_isPlaying) {
         computeGizmoScreenPositions(view, proj, static_cast<int>(m_lastViewportWidth), static_cast<int>(m_lastViewportHeight));
         renderTransformGizmo(view, proj);
-        computeColliderGizmoScreenPositions(view, proj, static_cast<int>(m_lastViewportWidth), static_cast<int>(m_lastViewportHeight));
-        renderColliderGizmo(view, proj);
+        if (m_showColliderGizmos) {
+            computeColliderGizmoScreenPositions(view, proj, static_cast<int>(m_lastViewportWidth), static_cast<int>(m_lastViewportHeight));
+            renderColliderGizmo(view, proj);
+        }
     }
 
     Framebuffer::unbind();
@@ -1080,6 +1083,7 @@ void Engine::tick() {
     m_lastViewportWidth = result.viewportWidth;
     m_lastViewportHeight = result.viewportHeight;
     m_lastViewportHovered = result.viewportHovered;
+    m_showColliderGizmos = result.showColliderGizmos;
 
     if (result.saveRequested) saveScene();
     if (result.openRequested) loadScene();

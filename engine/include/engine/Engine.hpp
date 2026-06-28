@@ -68,6 +68,7 @@ private:
     ObjectId m_selectedObject = kInvalidId;
     std::string m_projectPath;
     bool m_isPlaying = false; // true = vista di gioco a schermo intero (Play mode)
+    bool m_showColliderGizmos = true; // toggle "Visualizza > Avanzate > Collisioni"
 
     float m_clearColor[4] = {0.1f, 0.1f, 0.12f, 1.0f};
     double m_lastFrameTime = 0.0;
