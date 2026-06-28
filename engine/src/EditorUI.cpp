@@ -390,6 +390,9 @@ void EditorUI::drawInspectorWindow(Scene& scene, ObjectId selectedId) {
     }
     if (obj->colliderType == 1 || obj->colliderType == 3) {
         ImGui::DragFloat3("Rotazione collider", obj->colliderRotation, 1.0f);
+        ImGui::TextWrapped("Si combina con la rotazione dell'oggetto: se l'oggetto gira "
+                           "(es. uno script che lo ruota), il collider gira con lui. "
+                           "Usa questo campo solo per un disallineamento extra rispetto al corpo.");
     }
     if (obj->colliderType == 1) {
         ImGui::DragFloat3("Dimensioni Box", obj->colliderBoxSize, 0.05f, 0.01f, 100.0f);

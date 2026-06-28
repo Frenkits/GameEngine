@@ -87,6 +87,57 @@ namespace {
         float ddx = px - cx, ddy = py - cy;
         return std::sqrt(ddx * ddx + ddy * ddy);
     }
+
+    // Calcola gli assi mondo (X,Y,Z) di un collider Box/Capsula, combinando la
+    // rotazione PROPRIA dell'oggetto (così il collider segue l'oggetto quando
+    // questo ruota, es. una macchina che gira) con l'eventuale rotazione extra
+    // del collider stesso (colliderRotation, per casi particolari).
+    void getColliderWorldAxes(const Mat4& worldMatrix, const float colliderRotationDeg[3], Vec3 outAxes[3]) {
+        Mat4 rx = Mat4::rotateX(radians(colliderRotationDeg[0]));
+        Mat4 ry = Mat4::rotateY(radians(colliderRotationDeg[1]));
+        Mat4 rz = Mat4::rotateZ(radians(colliderRotationDeg[2]));
+        Mat4 ownRot = rz * ry * rx;
+
+        Vec3 localX = transformDirection(ownRot, Vec3{1.0f, 0.0f, 0.0f});
+        Vec3 localY = transformDirection(ownRot, Vec3{0.0f, 1.0f, 0.0f});
+        Vec3 localZ = transformDirection(ownRot, Vec3{0.0f, 0.0f, 1.0f});
+
+        outAxes[0] = transformDirection(worldMatrix, localX).normalized();
+        outAxes[1] = transformDirection(worldMatrix, localY).normalized();
+        outAxes[2] = transformDirection(worldMatrix, localZ).normalized();
+    }
+
+    // Test di separazione (SAT) tra due Box orientati (OBB): true se si
+    // sovrappongono, false se esiste un asse che li separa. Tiene conto della
+    // rotazione di entrambi, a differenza del semplice confronto AABB.
+    bool obbOverlap(const Vec3& centerA, const Vec3 axisA[3], const float halfA[3],
+                    const Vec3& centerB, const Vec3 axisB[3], const float halfB[3]) {
+        Vec3 d = centerB - centerA;
+
+        auto testAxis = [&](Vec3 axis) -> bool {
+            float len = axis.length();
+            if (len < 1e-6f) return true; // assi quasi paralleli: asse degenere, non separa
+
+            axis = axis * (1.0f / len);
+            float rA = std::fabs(Vec3::dot(axisA[0], axis)) * halfA[0]
+                     + std::fabs(Vec3::dot(axisA[1], axis)) * halfA[1]
+                     + std::fabs(Vec3::dot(axisA[2], axis)) * halfA[2];
+            float rB = std::fabs(Vec3::dot(axisB[0], axis)) * halfB[0]
+                     + std::fabs(Vec3::dot(axisB[1], axis)) * halfB[1]
+                     + std::fabs(Vec3::dot(axisB[2], axis)) * halfB[2];
+            float dist = std::fabs(Vec3::dot(d, axis));
+            return dist <= (rA + rB); // true = si sovrappongono su questo asse (non è separante)
+        };
+
+        // 15 assi candidati: 3 facce di A, 3 facce di B, 9 prodotti incrociati
+        for (int i = 0; i < 3; ++i) if (!testAxis(axisA[i])) return false;
+        for (int i = 0; i < 3; ++i) if (!testAxis(axisB[i])) return false;
+        for (int i = 0; i < 3; ++i)
+            for (int j = 0; j < 3; ++j)
+                if (!testAxis(Vec3::cross(axisA[i], axisB[j]))) return false;
+
+        return true; // nessun asse separante trovato: i due OBB si toccano/sovrappongono
+    }
 }
 
 Engine::Engine(int width, int height, const std::string& title, const std::string& projectPath)
@@ -791,14 +842,14 @@ void Engine::renderSceneToFramebuffer() {
             };
 
             if (obj.colliderType == 1) {
-                // Box: 12 spigoli del parallelepipedo, con rotazione propria del collider
+                // Box: 12 spigoli del parallelepipedo. Gli assi seguono SIA la
+                // rotazione dell'oggetto (es. la macchina che gira) SIA
+                // l'eventuale rotazione extra propria del collider.
                 float hx = obj.colliderBoxSize[0] * 0.5f, hy = obj.colliderBoxSize[1] * 0.5f, hz = obj.colliderBoxSize[2] * 0.5f;
 
-                Mat4 rx = Mat4::rotateX(radians(obj.colliderRotation[0]));
-                Mat4 ry = Mat4::rotateY(radians(obj.colliderRotation[1]));
-                Mat4 rz = Mat4::rotateZ(radians(obj.colliderRotation[2]));
-                Mat4 colRot = rz * ry * rx;
-                auto rotOffset = [&](float x, float y, float z) { return transformDirection(colRot, Vec3{x, y, z}); };
+                Vec3 axis[3];
+                getColliderWorldAxes(worldMatrix, obj.colliderRotation, axis);
+                auto rotOffset = [&](float x, float y, float z) { return axis[0]*x + axis[1]*y + axis[2]*z; };
 
                 Vec3 c[8] = {
                     center + rotOffset(-hx,-hy,-hz), center + rotOffset( hx,-hy,-hz),
@@ -829,18 +880,14 @@ void Engine::renderSceneToFramebuffer() {
 
             } else if (obj.colliderType == 3) {
                 // Capsula: due cerchi orizzontali alle estremità + 4 raccordi
-                // verticali, orientata secondo la rotazione propria del collider
-                // (il suo asse "lungo" di default è Y, ruotato come tutto il resto).
+                // verticali. Stessa combinazione rotazione oggetto + propria
+                // del Box: l'asse "lungo" segue la macchina quando gira.
                 float r = obj.colliderCapsuleRadius;
                 float halfH = std::max(0.0f, obj.colliderCapsuleHeight * 0.5f - r);
 
-                Mat4 crx = Mat4::rotateX(radians(obj.colliderRotation[0]));
-                Mat4 cry = Mat4::rotateY(radians(obj.colliderRotation[1]));
-                Mat4 crz = Mat4::rotateZ(radians(obj.colliderRotation[2]));
-                Mat4 colRot = crz * cry * crx;
-                Vec3 up = transformDirection(colRot, Vec3{0.0f, 1.0f, 0.0f}).normalized();
-                Vec3 right = transformDirection(colRot, Vec3{1.0f, 0.0f, 0.0f}).normalized();
-                Vec3 fwd = transformDirection(colRot, Vec3{0.0f, 0.0f, 1.0f}).normalized();
+                Vec3 axis[3];
+                getColliderWorldAxes(worldMatrix, obj.colliderRotation, axis);
+                Vec3 right = axis[0], up = axis[1], fwd = axis[2];
 
                 Vec3 top = center + up * halfH;
                 Vec3 bottom = center - up * halfH;
@@ -1164,47 +1211,59 @@ bool Engine::checkCollision(ObjectId a, ObjectId b) {
 
     std::unordered_map<ObjectId, Mat4> worldMatrices = computeWorldMatrices();
 
-    auto getCenter = [&](const GameObject* obj, ObjectId id) -> Vec3 {
+    auto getWorldMatrix = [&](const GameObject* obj, ObjectId id) -> Mat4 {
         auto it = worldMatrices.find(id);
-        Mat4 wm = (it != worldMatrices.end()) ? it->second : obj->transform.getMatrix();
+        return (it != worldMatrices.end()) ? it->second : obj->transform.getMatrix();
+    };
+    auto getCenter = [&](const GameObject* obj, const Mat4& wm) -> Vec3 {
         return Vec3{wm.m[12], wm.m[13], wm.m[14]}
              + Vec3{obj->colliderOffset[0], obj->colliderOffset[1], obj->colliderOffset[2]};
     };
 
-    Vec3 centerA = getCenter(objA, a);
-    Vec3 centerB = getCenter(objB, b);
+    Mat4 wmA = getWorldMatrix(objA, a);
+    Mat4 wmB = getWorldMatrix(objB, b);
+    Vec3 centerA = getCenter(objA, wmA);
+    Vec3 centerB = getCenter(objB, wmB);
 
-    // Box-Box: test AABB ESATTO (ignora la rotazione del collider, che resta
-    // solo visiva — un vero OBB-OBB con rotazione è un possibile sviluppo futuro).
+    // Box-Box: vero test OBB-OBB (Separating Axis Theorem), tiene conto della
+    // rotazione di entrambi (sia quella dell'oggetto che l'eventuale extra
+    // del collider stesso).
     if (objA->colliderType == 1 && objB->colliderType == 1) {
-        Vec3 halfA{objA->colliderBoxSize[0] * 0.5f, objA->colliderBoxSize[1] * 0.5f, objA->colliderBoxSize[2] * 0.5f};
-        Vec3 halfB{objB->colliderBoxSize[0] * 0.5f, objB->colliderBoxSize[1] * 0.5f, objB->colliderBoxSize[2] * 0.5f};
-        return std::fabs(centerA.x - centerB.x) <= (halfA.x + halfB.x)
-            && std::fabs(centerA.y - centerB.y) <= (halfA.y + halfB.y)
-            && std::fabs(centerA.z - centerB.z) <= (halfA.z + halfB.z);
+        Vec3 axisA[3], axisB[3];
+        getColliderWorldAxes(wmA, objA->colliderRotation, axisA);
+        getColliderWorldAxes(wmB, objB->colliderRotation, axisB);
+        float halfA[3] = {objA->colliderBoxSize[0] * 0.5f, objA->colliderBoxSize[1] * 0.5f, objA->colliderBoxSize[2] * 0.5f};
+        float halfB[3] = {objB->colliderBoxSize[0] * 0.5f, objB->colliderBoxSize[1] * 0.5f, objB->colliderBoxSize[2] * 0.5f};
+        return obbOverlap(centerA, axisA, halfA, centerB, axisB, halfB);
     }
 
-    // Sfera-Sfera: distanza ESATTA tra i centri (già precisa anche prima).
+    // Sfera-Sfera: distanza ESATTA tra i centri (non influenzata dalla rotazione).
     if (objA->colliderType == 2 && objB->colliderType == 2) {
         float dist = (centerA - centerB).length();
         return dist <= (objA->colliderSphereRadius + objB->colliderSphereRadius);
     }
 
-    // Box-Sfera (in entrambi gli ordini): punto più vicino del box al centro
-    // della sfera, poi distanza — ESATTO (ignora sempre la rotazione del box).
+    // Box-Sfera (in entrambi gli ordini): punto più vicino sul Box ORIENTATO
+    // (non più solo l'AABB) al centro della sfera, poi distanza — ESATTO,
+    // tiene conto della rotazione del box.
     if ((objA->colliderType == 1 && objB->colliderType == 2) || (objA->colliderType == 2 && objB->colliderType == 1)) {
         bool aIsBox = (objA->colliderType == 1);
         const GameObject* boxObj = aIsBox ? objA : objB;
-        const GameObject* sphereObj = aIsBox ? objB : objA;
+        const Mat4& boxWm = aIsBox ? wmA : wmB;
         Vec3 boxCenter = aIsBox ? centerA : centerB;
+        const GameObject* sphereObj = aIsBox ? objB : objA;
         Vec3 sphereCenter = aIsBox ? centerB : centerA;
 
-        Vec3 half{boxObj->colliderBoxSize[0] * 0.5f, boxObj->colliderBoxSize[1] * 0.5f, boxObj->colliderBoxSize[2] * 0.5f};
-        Vec3 closest{
-            std::max(boxCenter.x - half.x, std::min(sphereCenter.x, boxCenter.x + half.x)),
-            std::max(boxCenter.y - half.y, std::min(sphereCenter.y, boxCenter.y + half.y)),
-            std::max(boxCenter.z - half.z, std::min(sphereCenter.z, boxCenter.z + half.z))
-        };
+        Vec3 axis[3];
+        getColliderWorldAxes(boxWm, boxObj->colliderRotation, axis);
+        float half[3] = {boxObj->colliderBoxSize[0] * 0.5f, boxObj->colliderBoxSize[1] * 0.5f, boxObj->colliderBoxSize[2] * 0.5f};
+
+        Vec3 d = sphereCenter - boxCenter;
+        float local[3] = { Vec3::dot(d, axis[0]), Vec3::dot(d, axis[1]), Vec3::dot(d, axis[2]) };
+        for (int i = 0; i < 3; ++i) {
+            local[i] = std::max(-half[i], std::min(local[i], half[i]));
+        }
+        Vec3 closest = boxCenter + axis[0] * local[0] + axis[1] * local[1] + axis[2] * local[2];
 
         float dist = (closest - sphereCenter).length();
         return dist <= sphereObj->colliderSphereRadius;
