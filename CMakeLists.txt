@@ -61,6 +61,18 @@ target_include_directories(imgui PUBLIC
 # imgui_impl_glfw.cpp include <GLFW/glfw3.h>: il target glfw è già definito sopra
 target_link_libraries(imgui PUBLIC glfw OpenGL::GL)
 
+# --- stb_image (libreria header-only per caricare PNG/JPG/ecc., per le texture) ---
+FetchContent_Declare(
+    stb
+    GIT_REPOSITORY https://github.com/nothings/stb.git
+    GIT_TAG master
+    GIT_SHALLOW TRUE
+)
+FetchContent_MakeAvailable(stb)
+
+add_library(stb_image INTERFACE)
+target_include_directories(stb_image INTERFACE ${stb_SOURCE_DIR})
+
 # --- Core engine C++ ---
 add_subdirectory(engine)
 

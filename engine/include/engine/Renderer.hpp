@@ -30,8 +30,10 @@ public:
 
     // Cubo unitario (1x1x1) trasformato da 'model': usato per rappresentare
     // ogni GameObject nella scena finché non hai mesh vere e proprie
+    // textureId: id di una texture OpenGL già caricata (0 = nessuna, usa solo
+    // il colore r,g,b come prima).
     void drawCube(const Mat4& model, const Mat4& view, const Mat4& projection,
-                  float r, float g, float b);
+                  float r, float g, float b, unsigned int textureId = 0);
 
     // Versione SENZA illuminazione per il color-picking (vedi commento su
     // Mesh::drawUnlit per il perché serve uno shader separato).

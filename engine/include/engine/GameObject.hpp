@@ -39,6 +39,10 @@ struct GameObject {
     // on_update(engine, obj_id, dt), vengono chiamati automaticamente da Python.
     std::string scriptPath;
 
+    // Percorso di un'immagine (png/jpg/...) da applicare come texture invece
+    // del solo colore piatto (baseColor). Vuoto = nessuna texture.
+    std::string texturePath;
+
     // Collisione: forma usata da Engine::checkCollision per il rilevamento.
     // 0 = nessuna, 1 = Box, 2 = Sfera, 3 = Capsula.
     int colliderType = 0;

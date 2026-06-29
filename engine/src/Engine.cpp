@@ -339,6 +339,17 @@ std::shared_ptr<Mesh> Engine::getMeshForObject(const GameObject& obj) {
     return getOrLoadMesh(obj.meshPath, obj.excludedGroups); // retrocompatibilità vecchie scene
 }
 
+std::shared_ptr<Texture> Engine::getTextureForObject(const GameObject& obj) {
+    if (obj.texturePath.empty()) return nullptr;
+
+    auto it = m_textureCache.find(obj.texturePath);
+    if (it != m_textureCache.end()) return it->second;
+
+    auto texture = std::make_shared<Texture>(obj.texturePath);
+    m_textureCache[obj.texturePath] = texture; // anche se invalida: non riprova ogni frame
+    return texture;
+}
+
 void Engine::collectWorldMatrices(ObjectId id, const Mat4& parentWorld, std::unordered_map<ObjectId, Mat4>& out) {
     const GameObject* obj = m_scene.getObject(id);
     if (!obj) return;
@@ -871,14 +882,17 @@ void Engine::renderSceneToFramebuffer() {
         auto worldIt = worldMatrices.find(id);
         Mat4 worldMatrix = (worldIt != worldMatrices.end()) ? worldIt->second : obj.transform.getMatrix();
 
+        std::shared_ptr<Texture> texture = getTextureForObject(obj);
+        unsigned int textureId = (texture && texture->isValid()) ? texture->id() : 0;
+
         std::shared_ptr<Mesh> mesh = getMeshForObject(obj);
         if (mesh && mesh->isValid()) {
-            mesh->draw(worldMatrix, view, proj, r, g, b);
+            mesh->draw(worldMatrix, view, proj, r, g, b, textureId);
         } else if (obj.children.empty()) {
             // Solo i "veri" oggetti vuoti mostrano il cubo segnaposto: i
             // contenitori creati dall'import multi-oggetto (la cartella radice
             // che raggruppa i pezzi importati) restano invisibili, è giusto così.
-            m_renderer->drawCube(worldMatrix, view, proj, r, g, b);
+            m_renderer->drawCube(worldMatrix, view, proj, r, g, b, textureId);
         }
 
         // Gizmo "cono di visione": mostra quale porzione di scena la camera

@@ -137,7 +137,8 @@ bool Scene::saveToFile(const std::string& path) const {
             << obj.colliderBoxSize[0] << ',' << obj.colliderBoxSize[1] << ',' << obj.colliderBoxSize[2] << ';'
             << obj.colliderSphereRadius << ';'
             << obj.colliderCapsuleRadius << ';'
-            << obj.colliderCapsuleHeight << '\n';
+            << obj.colliderCapsuleHeight << ';'
+            << obj.texturePath << '\n';
     }
     return true;
 }
@@ -170,7 +171,7 @@ bool Scene::loadFromFile(const std::string& path) {
         std::string isLightStr, lightColorStr, lightIntensityStr;
         std::string isCameraStr, cameraFovStr, scriptPathStr;
         std::string colliderTypeStr, colliderOffsetStr, colliderRotationStr, colliderBoxSizeStr, colliderSphereRadiusStr;
-        std::string colliderCapsuleRadiusStr, colliderCapsuleHeightStr;
+        std::string colliderCapsuleRadiusStr, colliderCapsuleHeightStr, texturePathStr;
         std::getline(ss, idStr, ';');
         std::getline(ss, parentStr, ';');
         std::getline(ss, name, ';');
@@ -194,6 +195,7 @@ bool Scene::loadFromFile(const std::string& path) {
         std::getline(ss, colliderSphereRadiusStr, ';');
         std::getline(ss, colliderCapsuleRadiusStr, ';');
         std::getline(ss, colliderCapsuleHeightStr, ';');
+        std::getline(ss, texturePathStr, ';'); // assente nei salvataggi vecchi: resta vuoto
 
         GameObject obj;
         obj.id = std::stoi(idStr);
@@ -252,6 +254,7 @@ bool Scene::loadFromFile(const std::string& path) {
         if (!colliderSphereRadiusStr.empty()) obj.colliderSphereRadius = std::stof(colliderSphereRadiusStr);
         if (!colliderCapsuleRadiusStr.empty()) obj.colliderCapsuleRadius = std::stof(colliderCapsuleRadiusStr);
         if (!colliderCapsuleHeightStr.empty()) obj.colliderCapsuleHeight = std::stof(colliderCapsuleHeightStr);
+        obj.texturePath = texturePathStr;
 
         m_objects[obj.id] = obj;
         m_nextId = std::max(m_nextId, obj.id + 1);

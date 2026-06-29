@@ -11,7 +11,7 @@ namespace engine {
 // (pavimento, luci da studio, ecc.) esattamente come in Unreal/Unity.
 struct ObjGroup {
     std::string name;
-    std::vector<float> vertices; // posizioni triangolate e appiattite (x,y,z, x,y,z, ...)
+    std::vector<float> vertices; // 8 float per vertice: x,y,z, nx,ny,nz, u,v (triangolato e appiattito)
 
     // Colore del materiale originale (letto dal file .mtl associato, se
     // presente). Default: grigio neutro, come il colore di default dei

@@ -90,6 +90,7 @@ static const char* kCubeVertexSrc = R"(
 #version 330 core
 layout (location = 0) in vec3 aPos;
 layout (location = 1) in vec3 aNormal;
+layout (location = 2) in vec2 aUV;
 
 uniform mat4 uModel;
 uniform mat4 uView;
@@ -97,11 +98,13 @@ uniform mat4 uProjection;
 
 out vec3 vNormalWorld;
 out vec3 vWorldPos;
+out vec2 vUV;
 
 void main() {
     vNormalWorld = mat3(uModel) * aNormal;
     vec4 worldPos4 = uModel * vec4(aPos, 1.0);
     vWorldPos = worldPos4.xyz;
+    vUV = aUV;
     gl_Position = uProjection * uView * worldPos4;
 }
 )";
@@ -110,7 +113,10 @@ static const char* kCubeFragmentSrc = R"(
 #version 330 core
 in vec3 vNormalWorld;
 in vec3 vWorldPos;
+in vec2 vUV;
 uniform vec3 uColor;
+uniform sampler2D uTexture;
+uniform bool uHasTexture;
 out vec4 FragColor;
 
 uniform vec3 uLightPos;
@@ -119,11 +125,13 @@ uniform float uLightIntensity;
 uniform float uAmbient;
 
 void main() {
+    vec3 albedo = uHasTexture ? texture(uTexture, vUV).rgb : uColor;
+
     vec3 N = normalize(vNormalWorld);
     vec3 L = normalize(uLightPos - vWorldPos);
     float diffuse = max(dot(N, L), 0.0);
     vec3 lighting = vec3(uAmbient) + (1.0 - uAmbient) * diffuse * uLightColor * uLightIntensity;
-    FragColor = vec4(uColor * lighting, 1.0);
+    FragColor = vec4(albedo * lighting, 1.0);
 }
 )";
 
@@ -290,53 +298,71 @@ void Renderer::drawGrid(const Mat4& view, const Mat4& projection, const Vec3& ca
 void Renderer::setupCube() {
     m_cubeShader = std::make_unique<Shader>(kCubeVertexSrc, kCubeFragmentSrc);
 
-    // Cubo unitario centrato sull'origine: posizione (3) + normale (3) per
-    // vertice. Una normale per faccia (flat shading), niente index buffer
-    // per semplicità: leggermente ridondante in memoria ma il codice resta semplice.
+    // Cubo unitario centrato sull'origine: posizione (3) + normale (3) + UV (2)
+    // per vertice. Una normale per faccia (flat shading), niente index buffer
+    // per semplicità. UV: ogni faccia mappa l'intero quadrato texture 0..1
+    // (mappatura semplice "a cubo", non un unwrap vero, ma sufficiente per
+    // applicare una texture di base).
     static const float vertices[] = {
         // back face (normale -Z)
-        -0.5f,-0.5f,-0.5f,  0,0,-1,   0.5f,-0.5f,-0.5f,  0,0,-1,   0.5f, 0.5f,-0.5f,  0,0,-1,
-         0.5f, 0.5f,-0.5f,  0,0,-1,  -0.5f, 0.5f,-0.5f,  0,0,-1,  -0.5f,-0.5f,-0.5f,  0,0,-1,
+        -0.5f,-0.5f,-0.5f,  0,0,-1, 0,0,   0.5f,-0.5f,-0.5f,  0,0,-1, 1,0,   0.5f, 0.5f,-0.5f,  0,0,-1, 1,1,
+         0.5f, 0.5f,-0.5f,  0,0,-1, 1,1,  -0.5f, 0.5f,-0.5f,  0,0,-1, 0,1,  -0.5f,-0.5f,-0.5f,  0,0,-1, 0,0,
         // front face (normale +Z)
-        -0.5f,-0.5f, 0.5f,  0,0, 1,   0.5f,-0.5f, 0.5f,  0,0, 1,   0.5f, 0.5f, 0.5f,  0,0, 1,
-         0.5f, 0.5f, 0.5f,  0,0, 1,  -0.5f, 0.5f, 0.5f,  0,0, 1,  -0.5f,-0.5f, 0.5f,  0,0, 1,
+        -0.5f,-0.5f, 0.5f,  0,0, 1, 0,0,   0.5f,-0.5f, 0.5f,  0,0, 1, 1,0,   0.5f, 0.5f, 0.5f,  0,0, 1, 1,1,
+         0.5f, 0.5f, 0.5f,  0,0, 1, 1,1,  -0.5f, 0.5f, 0.5f,  0,0, 1, 0,1,  -0.5f,-0.5f, 0.5f,  0,0, 1, 0,0,
         // left face (normale -X)
-        -0.5f, 0.5f, 0.5f, -1,0,0,   -0.5f, 0.5f,-0.5f, -1,0,0,   -0.5f,-0.5f,-0.5f, -1,0,0,
-        -0.5f,-0.5f,-0.5f, -1,0,0,   -0.5f,-0.5f, 0.5f, -1,0,0,   -0.5f, 0.5f, 0.5f, -1,0,0,
+        -0.5f, 0.5f, 0.5f, -1,0,0, 1,1,   -0.5f, 0.5f,-0.5f, -1,0,0, 0,1,   -0.5f,-0.5f,-0.5f, -1,0,0, 0,0,
+        -0.5f,-0.5f,-0.5f, -1,0,0, 0,0,   -0.5f,-0.5f, 0.5f, -1,0,0, 1,0,   -0.5f, 0.5f, 0.5f, -1,0,0, 1,1,
         // right face (normale +X)
-         0.5f, 0.5f, 0.5f,  1,0,0,    0.5f, 0.5f,-0.5f,  1,0,0,    0.5f,-0.5f,-0.5f,  1,0,0,
-         0.5f,-0.5f,-0.5f,  1,0,0,    0.5f,-0.5f, 0.5f,  1,0,0,    0.5f, 0.5f, 0.5f,  1,0,0,
+         0.5f, 0.5f, 0.5f,  1,0,0, 1,1,    0.5f, 0.5f,-0.5f,  1,0,0, 0,1,    0.5f,-0.5f,-0.5f,  1,0,0, 0,0,
+         0.5f,-0.5f,-0.5f,  1,0,0, 0,0,    0.5f,-0.5f, 0.5f,  1,0,0, 1,0,    0.5f, 0.5f, 0.5f,  1,0,0, 1,1,
         // bottom face (normale -Y)
-        -0.5f,-0.5f,-0.5f,  0,-1,0,   0.5f,-0.5f,-0.5f,  0,-1,0,   0.5f,-0.5f, 0.5f,  0,-1,0,
-         0.5f,-0.5f, 0.5f,  0,-1,0,  -0.5f,-0.5f, 0.5f,  0,-1,0,  -0.5f,-0.5f,-0.5f,  0,-1,0,
+        -0.5f,-0.5f,-0.5f,  0,-1,0, 0,0,   0.5f,-0.5f,-0.5f,  0,-1,0, 1,0,   0.5f,-0.5f, 0.5f,  0,-1,0, 1,1,
+         0.5f,-0.5f, 0.5f,  0,-1,0, 1,1,  -0.5f,-0.5f, 0.5f,  0,-1,0, 0,1,  -0.5f,-0.5f,-0.5f,  0,-1,0, 0,0,
         // top face (normale +Y)
-        -0.5f, 0.5f,-0.5f,  0,1,0,    0.5f, 0.5f,-0.5f,  0,1,0,    0.5f, 0.5f, 0.5f,  0,1,0,
-         0.5f, 0.5f, 0.5f,  0,1,0,   -0.5f, 0.5f, 0.5f,  0,1,0,   -0.5f, 0.5f,-0.5f,  0,1,0,
+        -0.5f, 0.5f,-0.5f,  0,1,0, 0,0,    0.5f, 0.5f,-0.5f,  0,1,0, 1,0,    0.5f, 0.5f, 0.5f,  0,1,0, 1,1,
+         0.5f, 0.5f, 0.5f,  0,1,0, 1,1,   -0.5f, 0.5f, 0.5f,  0,1,0, 0,1,   -0.5f, 0.5f,-0.5f,  0,1,0, 0,0,
     };
 
+    constexpr int kFloatsPerVertex = 8;
     glGenVertexArrays(1, &m_cubeVao);
     glGenBuffers(1, &m_cubeVbo);
     glBindVertexArray(m_cubeVao);
     glBindBuffer(GL_ARRAY_BUFFER, m_cubeVbo);
     glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)0);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, kFloatsPerVertex * sizeof(float), (void*)0);
     glEnableVertexAttribArray(0);
-    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)(3 * sizeof(float)));
+    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, kFloatsPerVertex * sizeof(float), (void*)(3 * sizeof(float)));
     glEnableVertexAttribArray(1);
+    glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, kFloatsPerVertex * sizeof(float), (void*)(6 * sizeof(float)));
+    glEnableVertexAttribArray(2);
     glBindVertexArray(0);
 }
 
 void Renderer::drawCube(const Mat4& model, const Mat4& view, const Mat4& projection,
-                         float r, float g, float b) {
+                         float r, float g, float b, unsigned int textureId) {
     m_cubeShader->bind();
     m_cubeShader->setUniformMat4("uModel", model.data());
     m_cubeShader->setUniformMat4("uView", view.data());
     m_cubeShader->setUniformMat4("uProjection", projection.data());
     m_cubeShader->setUniform3f("uColor", r, g, b);
 
+    if (textureId != 0) {
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D, textureId);
+    }
+    int hasTexLoc = glGetUniformLocation(m_cubeShader->id(), "uHasTexture");
+    glUniform1i(hasTexLoc, textureId != 0 ? 1 : 0);
+    int texLoc = glGetUniformLocation(m_cubeShader->id(), "uTexture");
+    glUniform1i(texLoc, 0);
+
     glBindVertexArray(m_cubeVao);
     glDrawArrays(GL_TRIANGLES, 0, 36);
     glBindVertexArray(0);
+
+    if (textureId != 0) {
+        glBindTexture(GL_TEXTURE_2D, 0);
+    }
 }
 
 void Renderer::drawCubeUnlit(const Mat4& model, const Mat4& view, const Mat4& projection,

@@ -6,6 +6,7 @@
 #include "engine/EditorUI.hpp"
 #include "engine/Framebuffer.hpp"
 #include "engine/Mesh.hpp"
+#include "engine/Texture.hpp"
 #include <memory>
 #include <string>
 #include <unordered_map>
@@ -194,6 +195,12 @@ private:
     // per l'import multi-oggetto, oppure "<path>|<excludedGroupsCsv>" per il
     // vecchio flusso a mesh-singola (retrocompatibilità).
     std::unordered_map<std::string, std::shared_ptr<Mesh>> m_meshCache;
+    std::unordered_map<std::string, std::shared_ptr<Texture>> m_textureCache;
+
+    // Ritorna la texture caricata per obj.texturePath (cache: ricaricata da
+    // disco solo la prima volta che viene vista), o nullptr se texturePath è
+    // vuoto o il file non è valido.
+    std::shared_ptr<Texture> getTextureForObject(const GameObject& obj);
     std::shared_ptr<Mesh> getOrLoadMesh(const std::string& path, const std::string& excludedGroupsCsv);
     std::shared_ptr<Mesh> getOrLoadMeshGroup(const std::string& path, const std::string& groupName);
     std::shared_ptr<Mesh> getMeshForObject(const GameObject& obj);

@@ -48,12 +48,6 @@ std::unordered_map<std::string, std::array<float, 3>> parseMtlFile(const std::st
     return result;
 }
 
-}
-
-// Normale del triangolo (flat shading: stessa normale per i 3 vertici della
-// faccia). Calcolata sempre noi stessi via prodotto vettoriale, indipendentemente
-// da eventuali "vn" nel file: più semplice e robusto di parsare/indicizzare le
-// normali originali, al costo di un'illuminazione "a facce" non "a superficie morbida".
 void computeFaceNormal(const float* p0, const float* p1, const float* p2, float out[3]) {
     float e1[3] = { p1[0] - p0[0], p1[1] - p0[1], p1[2] - p0[2] };
     float e2[3] = { p2[0] - p0[0], p2[1] - p0[1], p2[2] - p0[2] };
@@ -64,12 +58,28 @@ void computeFaceNormal(const float* p0, const float* p1, const float* p2, float 
     if (len > 1e-8f) { out[0] /= len; out[1] /= len; out[2] /= len; }
 }
 
-// Parser interno condiviso da loadObjFile e loadObjFileGrouped. Parsing
-// manuale (niente std::stringstream per riga): su file da 2+ milioni di
-// righe lo stream-based parsing è il vero collo di bottiglia.
-//
-// Formato di uscita per ogni vertice: x,y,z, nx,ny,nz (6 float interleaved),
-// pronto per un VAO con due attributi (posizione + normale).
+// Estrae UN indice da un token faccia ("12", "12/3", "12/3/5", "12//5"...).
+// which=0 -> indice posizione (prima del primo '/'); which=1 -> indice UV
+// (tra il primo e il secondo '/', vuoto se assente, es. "12//5").
+// Ritorna 0 se il campo richiesto è assente/vuoto (nessun indice).
+long parseFaceIndexField(const std::string& token, int which) {
+    size_t firstSlash = token.find('/');
+    if (which == 0) {
+        std::string field = (firstSlash == std::string::npos) ? token : token.substr(0, firstSlash);
+        if (field.empty()) return 0;
+        return std::strtol(field.c_str(), nullptr, 10);
+    }
+    // which == 1: campo UV, tra il primo e il secondo '/'
+    if (firstSlash == std::string::npos) return 0; // "12" (nessuna UV)
+    size_t secondSlash = token.find('/', firstSlash + 1);
+    std::string field = (secondSlash == std::string::npos)
+        ? token.substr(firstSlash + 1)
+        : token.substr(firstSlash + 1, secondSlash - firstSlash - 1);
+    if (field.empty()) return 0; // "12//5" (nessuna UV)
+    return std::strtol(field.c_str(), nullptr, 10);
+}
+
+// Formato di uscita per ogni vertice: x,y,z, nx,ny,nz, u,v (8 float interleaved).
 bool parseObjGrouped(const std::string& path, std::vector<ObjGroup>& outGroups) {
     std::ifstream file(path);
     if (!file.is_open()) {
@@ -77,7 +87,8 @@ bool parseObjGrouped(const std::string& path, std::vector<ObjGroup>& outGroups) 
         return false;
     }
 
-    std::vector<float> positions; // x,y,z grezzi di TUTTO il file (condivisi tra gruppi)
+    std::vector<float> positions;  // x,y,z di tutto il file
+    std::vector<float> texcoords;  // u,v di tutto il file (vuoto se il file non ne ha)
     outGroups.clear();
 
     std::unordered_map<std::string, size_t> nameToIndex;
@@ -91,8 +102,9 @@ bool parseObjGrouped(const std::string& path, std::vector<ObjGroup>& outGroups) 
     };
 
     size_t currentGroupIdx = ensureGroup("(senza nome)");
-    std::vector<int> faceIndices; // riutilizzato per ogni faccia, evita realloc
-    std::unordered_map<std::string, std::array<float, 3>> materialColors; // nome materiale -> colore Kd
+    std::vector<long> faceIndices;   // indici posizione di una faccia
+    std::vector<long> faceUvIndices; // indici UV della stessa faccia (0 = nessuna)
+    std::unordered_map<std::string, std::array<float, 3>> materialColors;
 
     std::string line;
     int vCount = 0, fCount = 0;
@@ -111,6 +123,14 @@ bool parseObjGrouped(const std::string& path, std::vector<ObjGroup>& outGroups) 
             positions.push_back(z);
             ++vCount;
 
+        } else if (line[0] == 'v' && line[1] == 't' && (line.size() == 2 || line[2] == ' ')) {
+            const char* p = line.c_str() + 2;
+            char* end;
+            float u = std::strtof(p, &end); p = end;
+            float v = std::strtof(p, &end); p = end;
+            texcoords.push_back(u);
+            texcoords.push_back(v);
+
         } else if ((line[0] == 'o' || line[0] == 'g') && line[1] == ' ') {
             std::string name = line.substr(2);
             while (!name.empty() && (name.back() == '\r' || name.back() == ' ')) name.pop_back();
@@ -119,10 +139,8 @@ bool parseObjGrouped(const std::string& path, std::vector<ObjGroup>& outGroups) 
             }
 
         } else if (line.rfind("mtllib", 0) == 0 && (line.size() == 6 || line[6] == ' ')) {
-            // Riga tipo "mtllib nomefile.mtl" (raramente più file separati da spazio).
-            // Il file .mtl si trova nella stessa cartella del file .obj.
             std::string rest = line.substr(6);
-            std::stringstream ss(rest); // riga rara, non un hot-path: ok usare stringstream qui
+            std::stringstream ss(rest); // riga rara, non un hot-path
             std::string mtlFile;
             std::filesystem::path objDir = std::filesystem::path(path).parent_path();
             while (ss >> mtlFile) {
@@ -149,30 +167,38 @@ bool parseObjGrouped(const std::string& path, std::vector<ObjGroup>& outGroups) 
         } else if (line[0] == 'f' && line[1] == ' ') {
             ++fCount;
             faceIndices.clear();
+            faceUvIndices.clear();
             const char* p = line.c_str() + 2;
             int verticesSoFar = static_cast<int>(positions.size() / 3);
+            int uvsSoFar = static_cast<int>(texcoords.size() / 2);
 
             while (*p) {
                 while (*p == ' ') ++p;
                 if (!*p) break;
-                char* end;
-                long rawIdx = std::strtol(p, &end, 10);
-                if (end == p) break;
-                p = end;
-                while (*p && *p != ' ') ++p; // salta l'eventuale /vt/vn dopo l'indice
 
-                int idx0Based = (rawIdx > 0) ? static_cast<int>(rawIdx - 1)
-                                              : static_cast<int>(verticesSoFar + rawIdx);
+                const char* tokenStart = p;
+                while (*p && *p != ' ') ++p;
+                std::string token(tokenStart, p);
+
+                long rawIdx = parseFaceIndexField(token, 0);
+                if (rawIdx == 0) continue;
+                long idx0Based = (rawIdx > 0) ? (rawIdx - 1) : (verticesSoFar + rawIdx);
                 faceIndices.push_back(idx0Based);
+
+                long rawUv = parseFaceIndexField(token, 1);
+                long uvIdx0Based = (rawUv == 0) ? -1 // nessuna UV per questo vertice
+                                  : (rawUv > 0) ? (rawUv - 1) : (uvsSoFar + rawUv);
+                faceUvIndices.push_back(uvIdx0Based);
             }
 
             std::vector<float>& outVerts = outGroups[currentGroupIdx].vertices;
 
             // Triangolazione a ventaglio: (0,1,2), (0,2,3), (0,3,4), ...
             for (size_t i = 1; i + 1 < faceIndices.size(); ++i) {
-                int idxs[3] = { faceIndices[0], faceIndices[i], faceIndices[i + 1] };
+                long idxs[3] = { faceIndices[0], faceIndices[i], faceIndices[i + 1] };
+                long uvIdxs[3] = { faceUvIndices[0], faceUvIndices[i], faceUvIndices[i + 1] };
                 bool valid = true;
-                for (int idx : idxs) {
+                for (long idx : idxs) {
                     if (idx < 0 || static_cast<size_t>(idx) * 3 + 2 >= positions.size()) {
                         valid = false;
                         break;
@@ -187,31 +213,43 @@ bool parseObjGrouped(const std::string& path, std::vector<ObjGroup>& outGroups) 
                 float normal[3];
                 computeFaceNormal(p0, p1, p2, normal);
 
-                for (const float* pv : { p0, p1, p2 }) {
-                    outVerts.push_back(pv[0]);
-                    outVerts.push_back(pv[1]);
-                    outVerts.push_back(pv[2]);
+                const float* positionsArr[3] = { p0, p1, p2 };
+                for (int v = 0; v < 3; ++v) {
+                    outVerts.push_back(positionsArr[v][0]);
+                    outVerts.push_back(positionsArr[v][1]);
+                    outVerts.push_back(positionsArr[v][2]);
                     outVerts.push_back(normal[0]);
                     outVerts.push_back(normal[1]);
                     outVerts.push_back(normal[2]);
+
+                    long uvIdx = uvIdxs[v];
+                    if (uvIdx >= 0 && static_cast<size_t>(uvIdx) * 2 + 1 < texcoords.size()) {
+                        outVerts.push_back(texcoords[uvIdx * 2]);
+                        outVerts.push_back(texcoords[uvIdx * 2 + 1]);
+                    } else {
+                        outVerts.push_back(0.0f);
+                        outVerts.push_back(0.0f);
+                    }
                 }
             }
         }
-        // altri tag (vn, vt, usemtl, mtllib, s...) ignorati
     }
 
     outGroups.erase(std::remove_if(outGroups.begin(), outGroups.end(),
         [](const ObjGroup& g) { return g.vertices.empty(); }), outGroups.end());
 
     std::cout << "[ObjLoader] File: " << path << "\n";
-    std::cout << "[ObjLoader] Vertici totali: " << vCount << ", Facce totali: " << fCount << "\n";
+    std::cout << "[ObjLoader] Vertici totali: " << vCount << ", Facce totali: " << fCount
+               << ", Coordinate UV: " << (texcoords.size() / 2) << "\n";
     std::cout << "[ObjLoader] Gruppi con geometria: " << outGroups.size() << "\n";
     for (const auto& g : outGroups) {
-        std::cout << "[ObjLoader]   - \"" << g.name << "\": " << (g.vertices.size() / 18) << " triangoli\n";
+        std::cout << "[ObjLoader]   - \"" << g.name << "\": " << (g.vertices.size() / 24) << " triangoli\n";
     }
 
     return !outGroups.empty();
 }
+
+} // namespace
 
 bool loadObjFileGrouped(const std::string& path, std::vector<ObjGroup>& outGroups) {
     return parseObjGrouped(path, outGroups);

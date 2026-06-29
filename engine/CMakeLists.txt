@@ -8,6 +8,7 @@ add_library(engine_core STATIC
     src/Launcher.cpp
     src/ObjLoader.cpp
     src/Mesh.cpp
+    src/Texture.cpp
     src/Engine.cpp
 )
 
@@ -20,4 +21,5 @@ target_link_libraries(engine_core PUBLIC
     glfw
     OpenGL::GL
     imgui
+    stb_image
 )

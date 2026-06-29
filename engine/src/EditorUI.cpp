@@ -468,6 +468,35 @@ void EditorUI::drawInspectorWindow(Scene& scene, ObjectId selectedId) {
                        "(funzioni on_start/on_update). Crealo dal pannello Assets ('+ Script').");
 
     ImGui::Separator();
+    ImGui::Text("Texture");
+    if (ImGui::Button(obj->texturePath.empty() ? "(trascina qui un'immagine)" : obj->texturePath.c_str(),
+                       ImVec2(-1, 0))) {
+        // Nessuna azione al click (a differenza dello script, un'immagine non
+        // ha un "editor di testo predefinito" sensato da aprire).
+    }
+    if (ImGui::BeginDragDropTarget()) {
+        if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("ASSET_FILE_PATH")) {
+            std::string path(static_cast<const char*>(payload->Data));
+            std::string lower = path;
+            std::transform(lower.begin(), lower.end(), lower.begin(), [](unsigned char c) { return std::tolower(c); });
+            bool isImage = lower.size() >= 4 && (
+                lower.substr(lower.size() - 4) == ".png" ||
+                lower.substr(lower.size() - 4) == ".jpg" ||
+                lower.substr(lower.size() - 4) == ".bmp" ||
+                (lower.size() >= 5 && lower.substr(lower.size() - 5) == ".jpeg"));
+            if (isImage) {
+                obj->texturePath = path;
+            }
+        }
+        ImGui::EndDragDropTarget();
+    }
+    if (!obj->texturePath.empty() && ImGui::Button("Rimuovi texture")) {
+        obj->texturePath.clear();
+    }
+    ImGui::TextWrapped("Sostituisce il colore piatto sopra con l'immagine, sia sul "
+                       "cubo segnaposto che sui modelli .obj importati.");
+
+    ImGui::Separator();
     ImGui::Text("Collisione");
     const char* colliderNames[] = {"Nessuna", "Box", "Sfera", "Capsula"};
     if (ImGui::Combo("Tipo collider", &obj->colliderType, colliderNames, 4)) {
@@ -662,13 +691,24 @@ void EditorUI::drawAssetGridItem(const std::string& fullPath, const std::string&
     ImVec2 cursorStart = ImGui::GetCursorScreenPos();
     ImDrawList* drawList = ImGui::GetWindowDrawList();
 
-    // "Icona": un rettangolo colorato (cartella = oro, .obj = blu, altro = grigio).
-    // Niente thumbnail vere per ora: nessun loader di immagini nel motore ancora.
+    // "Icona": un rettangolo colorato per tipo (cartella = oro, .obj = blu,
+    // .py = verde, immagini = viola, altro = grigio). Niente thumbnail vere
+    // (anteprima dell'immagine reale) per ora, solo il colore identificativo.
+    auto endsWithCi = [&](const std::string& s, const std::string& suffix) {
+        if (s.size() < suffix.size()) return false;
+        return std::equal(suffix.rbegin(), suffix.rend(), s.rbegin(),
+                          [](char a, char b) { return std::tolower(a) == std::tolower(b); });
+    };
+    bool isImage = endsWithCi(fullPath, ".png") || endsWithCi(fullPath, ".jpg")
+                || endsWithCi(fullPath, ".jpeg") || endsWithCi(fullPath, ".bmp");
+
     ImVec4 iconColor = isFolder ? ImVec4(0.85f, 0.7f, 0.25f, 1.0f)
                       : (fullPath.size() > 4 && fullPath.substr(fullPath.size() - 4) == ".obj")
                           ? ImVec4(0.3f, 0.55f, 0.9f, 1.0f)
                       : (fullPath.size() > 3 && fullPath.substr(fullPath.size() - 3) == ".py")
                           ? ImVec4(0.3f, 0.75f, 0.35f, 1.0f)
+                      : isImage
+                          ? ImVec4(0.65f, 0.35f, 0.85f, 1.0f)
                           : ImVec4(0.45f, 0.45f, 0.48f, 1.0f);
 
     bool clicked = ImGui::InvisibleButton("##icon", ImVec2(kIconSize, kIconSize));

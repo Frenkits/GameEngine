@@ -17,8 +17,10 @@ public:
     Mesh(const Mesh&) = delete;
     Mesh& operator=(const Mesh&) = delete;
 
+    // textureId: id di una texture OpenGL già caricata (0 = nessuna, usa solo
+    // il colore r,g,b come prima). Vedi Texture.hpp per come si carica.
     void draw(const Mat4& model, const Mat4& view, const Mat4& projection,
-              float r, float g, float b) const;
+              float r, float g, float b, unsigned int textureId = 0) const;
 
     // Versione SENZA illuminazione: usata esclusivamente per il color-picking.
     // Lì il "colore" è in realtà l'id dell'oggetto codificato esattamente nei
